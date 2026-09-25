@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Darmoshark K8 Studio",
+  "version": "1.0.0",
+  "identifier": "dev.darmoshark.k8studio",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Darmoshark K8 Studio",
+        "width": 1480,
+        "height": 920,
+        "minWidth": 1050,
+        "minHeight": 700,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "backgroundColor": "#08090c"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' customprotocol: asset:; connect-src ipc: http://ipc.localhost http://127.0.0.1:*; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "rpm", "appimage"],
+    "category": "Utility",
+    "shortDescription": "Darmoshark K8 RGB, LCD and macro studio",
+    "longDescription": "Native Linux desktop control studio for the Darmoshark K8 keyboard.",
+    "licenseFile": "../LICENSE",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "linux": {
+      "deb": {
+        "files": {
+          "/lib/udev/rules.d/99-darmoshark-k8.rules": "../packaging/99-darmoshark-k8.rules"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/lib/udev/rules.d/99-darmoshark-k8.rules": "../packaging/99-darmoshark-k8.rules"
+        }
+      }
+    }
+  }
+}

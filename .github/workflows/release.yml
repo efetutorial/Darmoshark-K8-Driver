@@ -1,0 +1,62 @@
+name: Release packages
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  linux-packages:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev \
+            libsoup-3.0-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 rpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Build Debian, RPM and AppImage packages
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: Darmoshark K8 Studio ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          args: --bundles deb,rpm,appimage
+      - name: Render Arch PKGBUILD
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          version="${VERSION#v}"
+          archive_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${VERSION}.tar.gz"
+          curl --fail --location --retry 3 "$archive_url" --output /tmp/source.tar.gz
+          checksum="$(sha256sum /tmp/source.tar.gz | cut -d ' ' -f 1)"
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          mkdir -p dist
+          sed -e "s|@VERSION@|$version|g" \
+              -e "s|@GITHUB_REPOSITORY@|${GITHUB_REPOSITORY}|g" \
+              -e "s|@REPOSITORY_NAME@|$repository_name|g" \
+              -e "s|@SHA256@|$checksum|g" \
+              packaging/arch/PKGBUILD.in > dist/PKGBUILD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-pkgbuild
+          path: dist/PKGBUILD
+          if-no-files-found: error
+      - name: Add additional files to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload "$GITHUB_REF_NAME"
+          dist/PKGBUILD
+          packaging/99-darmoshark-k8.rules
+          --clobber

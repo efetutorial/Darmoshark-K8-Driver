@@ -1,0 +1,11 @@
+{
+  "name": "darmoshark-k8-studio-tests",
+  "private": true,
+  "scripts": {
+    "check": "node --check ui/app.js && node --check ui/display.js",
+    "test": "node tests/test_ui.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Darmoshark K8 Studio
+Comment=K8 RGB, LCD, macro and keyboard control studio
+Exec=@EXEC@
+Icon=darmoshark-k8
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;rgb;hid;darmoshark;lcd;macro;

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Darmoshark K8 Studio</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><span>K8</span></div>
+        <div><strong>K8 Studio</strong><small>Darmoshark</small></div>
+      </div>
+
+      <nav id="navigation" aria-label="Navigation">
+        <button class="nav-item active" data-page="lighting"><span class="nav-icon">✦</span><span>Lighting</span></button>
+        <button class="nav-item" data-page="display"><span class="nav-icon">▣</span><span>Display</span></button>
+        <button class="nav-item" data-page="keys"><span class="nav-icon">⌨</span><span>Keys</span></button>
+        <button class="nav-item" data-page="macros"><span class="nav-icon">⌁</span><span>Macros</span></button>
+        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="device-chip">
+          <span id="connection-dot" class="connection-dot"></span>
+          <div><strong id="device-name">Connecting…</strong><small id="device-path">Checking keyboard</small></div>
+        </div>
+        <button id="command-open" class="command-hint"><span>Search</span><kbd>Ctrl K</kbd></button>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <h1 id="page-title">Lighting</h1>
+        <div class="top-actions">
+          <div class="profile-switch" aria-label="Active profile">
+            <span>Profile</span>
+            <button data-profile="0" class="active">1</button><button data-profile="1">2</button><button data-profile="2">3</button>
+          </div>
+          <button id="refresh" class="round-button" title="Refresh">↻</button>
+          <button id="activity-open" class="round-button" title="Activity">☷</button>
+        </div>
+      </header>
+
+      <div id="offline-banner" class="offline-banner hidden">
+        <strong>Keyboard disconnected.</strong> Connect your K8 with a USB cable and switch to wired mode.
+      </div>
+
+      <section id="lighting" class="page active">
+        <div class="studio-grid">
+          <article class="panel keyboard-stage">
+            <div class="stage-toolbar"><div><h3>Keyboard lighting</h3></div><span id="lighting-live-label" class="status-badge live">PREVIEW</span></div>
+            <div class="stage-device"><div class="stage-glow"></div><div id="rgb-keyboard" class="visual-keyboard compact-keyboard"></div></div>
+          </article>
+          <article class="panel controls-panel">
+            
+            <label class="field"><span>Effect</span><select id="effect"></select></label>
+            <div class="field-row">
+              <label id="color-wrap" class="field"><span>Color</span><div class="color-field"><input id="color" type="color" value="#ff6432"><input aria-label="Color hex code" id="color-hex" value="#FF6432" maxlength="7"></div><span id="color-palette" class="color-palette" aria-label="Quick colors"><button type="button" data-color="#FF2D55" style="--swatch:#FF2D55" title="Red"></button><button type="button" data-color="#FF9500" style="--swatch:#FF9500" title="Orange"></button><button type="button" data-color="#FFD60A" style="--swatch:#FFD60A" title="Yellow"></button><button type="button" data-color="#30D158" style="--swatch:#30D158" title="Green"></button><button type="button" data-color="#00C7BE" style="--swatch:#00C7BE" title="Cyan"></button><button type="button" data-color="#0A84FF" style="--swatch:#0A84FF" title="Blue"></button><button type="button" data-color="#BF5AF2" style="--swatch:#BF5AF2" title="Purple"></button><button type="button" data-color="#FFFFFF" style="--swatch:#FFFFFF" title="White"></button></span></label>
+              <label id="direction-wrap" class="field"><span>Direction</span><select id="direction"><option value="right">Right</option><option value="left">Left</option><option value="down">Down</option><option value="up">Up</option></select></label>
+            </div>
+            <label id="brightness-wrap" class="range-field"><span>Brightness <b id="brightness-value">4 / 4</b></span><input id="brightness" type="range" min="0" max="4" value="4"></label>
+            <label id="speed-wrap" class="range-field"><span>Speed <b id="speed-value">2 / 4</b></span><input id="speed" type="range" min="0" max="4" value="2"></label>
+            <div class="field-row">
+              <label id="rainbow-wrap" class="switch-row"><input id="rainbow" type="checkbox"><span class="switch"></span><span>Rainbow</span></label>
+              <label id="rgb-slot-wrap" class="field hidden"><span>Custom slot</span><select id="rgb-slot"><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option><option value="4">Slot 4</option></select></label>
+            </div>
+            <p id="effect-note" class="effect-note hidden"></p>
+            <button id="apply-lighting" class="primary wide">Apply lighting</button>
+          </article>
+        </div>
+        <div class="panel sync-panel">
+          <div><h3>Live sync</h3></div>
+          <div id="spectrum" class="spectrum" aria-hidden="true"></div>
+          <div class="sync-actions"><button id="live-screen" class="ghost">▣ Screen color</button><button id="live-audio" class="ghost">♫ Audio spectrum</button><button id="live-stop" class="danger subtle">Stop</button></div>
+          <video id="capture-video" muted playsinline></video><canvas id="capture-canvas" width="1" height="1"></canvas>
+        </div>
+        <div class="panel preset-panel">
+          <div><h3>Presets</h3></div>
+          <div id="preset-list" class="preset-list"></div>
+          <button id="save-preset" class="ghost">+ Save preset</button>
+        </div>
+      </section>
+
+      <section id="display" class="page">
+        <div class="display-studio">
+          <article class="display-device">
+            <div class="lcd-shell"><div class="lcd-screen"><img id="display-preview" alt="Display preview"><div id="display-placeholder"><b>128</b><span>×</span><b>128</b></div></div></div>
+            <div class="screen-meta"><span id="file-meta">No image selected</span><b id="frame-meta">—</b></div>
+          </article>
+          <article class="panel upload-panel">
+            <h3>Display content</h3>
+            <label class="field"><span>Source</span><select id="display-source"><option value="image">Image or GIF</option><option value="screen">Screen snapshot</option><option value="card">Info card</option><option value="clock">Built-in clock</option></select></label>
+            <div id="display-image-fields" class="display-fields"><p>PNG, JPEG, WebP or GIF · 128×128</p>
+            <label id="drop-zone" class="drop-zone"><input id="display-file" type="file" accept="image/*"><span class="drop-icon">⇧</span><b>Drop an image or browse</b><small>Up to 100 MB</small></label></div>
+            <div id="display-screen-fields" class="display-fields hidden">
+              <p>Capture one frame, then upload the preview. No continuous mirroring.</p>
+              <button id="display-capture" class="ghost wide">Capture screen</button>
+              <label class="field"><span>Fit</span><select id="display-fit"><option value="contain">Fit entire image</option><option value="cover">Fill display (center crop)</option></select></label>
+            </div>
+            <div id="display-card-fields" class="display-fields hidden">
+              <label class="field"><span>Card</span><select id="display-card-type"><option value="note">Custom text</option><option value="datetime">Date and time snapshot</option><option value="system">Memory and uptime snapshot</option></select></label>
+              <label class="field"><span>Heading</span><input id="display-card-title" maxlength="20" value="HELLO"></label>
+              <label id="display-message-wrap" class="field"><span>Message</span><textarea id="display-card-message" rows="3" maxlength="90" placeholder="Write a short note">Make it yours.</textarea></label>
+              <label class="field"><span>Accent color</span><input id="display-card-color" type="color" value="#79c9a5"></label>
+              <button id="display-card-refresh" class="ghost wide">Refresh preview</button>
+              <p>Cards are saved as images. They do not update automatically.</p>
+            </div>
+            <div id="display-clock-fields" class="display-fields hidden">
+              <p>Sync the keyboard’s own clock with your computer. It keeps running without this app.</p>
+              <p>Select the clock screen using the keyboard’s controls.</p>
+              <button id="display-sync-clock" class="primary wide">Sync clock</button>
+            </div>
+            <div class="field-row">
+              <label id="display-slot-wrap" class="field"><span>Display slot</span><select id="display-layer"><option value="0">Slot 1</option><option value="1">Slot 2</option><option value="2">Slot 3</option><option value="3">Slot 4</option><option value="4">Slot 5</option></select></label>
+              <label id="display-delay-wrap" class="field"><span>GIF frame delay</span><div class="unit-field"><input id="display-delay" type="number" min="1" max="255" placeholder="Auto"><em>ms</em></div></label>
+            </div>
+            <button id="upload-display" class="primary wide">Upload to display</button>
+            <div class="upload-progress"><div><span id="upload-progress-bar"></span></div><small id="upload-progress-label">Ready</small></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="keys" class="page">
+        <article class="panel key-map-panel">
+          <div class="panel-heading"><div><h3 id="selected-key-title">Select a key</h3></div><div class="segmented"><button data-map-layer="normal" class="active">Normal</button><button data-map-layer="fn">Fn</button></div></div>
+          <div id="key-map" class="visual-keyboard full-keyboard"></div>
+          
+        </article>
+        <div class="key-editor-grid">
+          <article class="panel assignment-panel">
+            <h3>Key assignment</h3>
+            <div class="selected-key-chip"><span id="selected-key-chip">—</span><small id="selected-layer-chip">NORMAL LAYER</small></div>
+            <label class="field"><span>Action</span><input id="remap-target" list="target-list" placeholder="Key, media or mouse action"></label>
+            <div class="field-row">
+              <label class="field"><span>Modifier</span><select id="remap-mod"><option value="none">None</option><option value="ctrl">Ctrl</option><option value="shift">Shift</option><option value="alt">Alt</option><option value="meta">Meta</option></select></label>
+              <label class="field"><span>Second key</span><input id="remap-second" list="key-list" placeholder="Optional"></label>
+            </div>
+            <button id="apply-remap" class="primary wide">Apply assignment</button>
+          </article>
+          <article class="panel per-key-panel">
+            <h3>Key color</h3>
+            <div class="paint-preview"><span id="paint-key">—</span><i></i></div>
+            <label class="field"><span>Color</span><div class="color-field"><input id="key-color" type="color" value="#ff6432"><input aria-label="Key color hex code" id="key-color-hex" value="#FF6432" maxlength="7"></div></label>
+            <label class="field"><span>Lighting slot</span><select id="key-color-slot"><option value="0">Slot 1</option><option value="1">Slot 2</option><option value="2">Slot 3</option><option value="3">Slot 4</option></select></label>
+            <button id="apply-key-color" class="ghost wide">Apply key color</button>
+          </article>
+        </div>
+        <datalist id="key-list"></datalist><datalist id="target-list"></datalist>
+      </section>
+
+      <section id="macros" class="page">
+        <div class="macro-layout">
+          <article class="panel macro-config">
+            <h3>Record a macro</h3><p>Runs on your keyboard, even when the app is closed.</p>
+            <label class="field"><span>Trigger key</span><input id="macro-source" list="key-list" value="F12"></label>
+            <div class="field-row"><label class="field"><span>Macro slot</span><input id="macro-index" type="number" min="0" max="49" value="0"></label><label class="field"><span>Repeat count</span><input id="macro-repeat" type="number" min="0" max="65535" value="1"></label></div>
+            <label class="field"><span>Playback</span><select id="macro-mode"><option value="repeat">Repeat</option><option value="toggle">Toggle on / off</option><option value="while_held">While held</option></select></label>
+            <div class="macro-buttons"><button id="macro-record" class="ghost">● Record</button><button id="macro-clear" class="ghost">Clear</button></div>
+            <button id="apply-macro" class="primary wide">Save macro</button>
+          </article>
+          <article class="panel timeline-panel">
+            <div class="panel-heading"><div><h3 id="macro-count">0 events</h3></div><button id="macro-add" class="ghost small">+ Add event</button></div>
+            <div class="timeline-head"><span>Key</span><span>Action</span><span>Delay</span><span></span></div>
+            <div id="macro-events" class="macro-events"></div>
+            <div id="recording-hint" class="recording-hint hidden"><i></i> Recording — press keys, then Esc to finish</div>
+          </article>
+        </div>
+      </section>
+
+      <section id="settings" class="page">
+        <div class="settings-grid">
+          <article class="panel settings-card">
+            <h3>Performance</h3>
+            <label class="field"><span>USB report rate</span><select id="report-rate"><option value="1000">1000 Hz</option><option value="500">500 Hz</option><option value="250">250 Hz</option><option value="125">125 Hz</option></select></label>
+            <p class="setting-note">1000 Hz gives the shortest report interval. This is not a measurement of total key latency.</p>
+            <label class="range-field"><span>Debounce <b id="debounce-value">1 ms</b></span><input id="debounce" type="range" min="0" max="10" value="1"></label>
+            <button id="apply-performance" class="primary wide">Apply performance</button>
+          </article>
+          <article class="panel settings-card">
+            <h3>Keyboard options</h3>
+            <div id="option-list" class="option-list">
+              <label><span><b>Lock Windows key</b></span><input type="checkbox" data-option="win_lock"><i></i></label>
+              <label><span><b>macOS mode</b></span><input type="checkbox" data-option="mac_mode"><i></i></label>
+              <label><span><b>Swap WASD and arrows</b></span><input type="checkbox" data-option="swap_wasd_arrows"><i></i></label>
+              <label><span><b>Gaming mode</b></span><input type="checkbox" data-option="gaming_mode"><i></i></label>
+              <label><span><b>Fn remapping</b></span><input type="checkbox" data-option="fn_remap"><i></i></label>
+              <label><span><b>Power saving</b></span><input type="checkbox" data-option="power_save"><i></i></label>
+              <label><span><b>Turn off key lighting</b></span><input type="checkbox" data-option="led_off"><i></i></label>
+              <label><span><b>Turn off side lighting</b></span><input type="checkbox" data-option="side_led_off"><i></i></label>
+            </div>
+            <button id="apply-options" class="ghost wide">Save options</button>
+          </article>
+          <article class="panel settings-card sleep-settings">
+            <h3>Sleep timers</h3>
+            <div class="field-row"><label class="field"><span>Bluetooth sleep</span><div class="unit-field"><input id="sleep-bt" type="number" min="0" max="60"><em>min</em></div></label><label class="field"><span>2.4 GHz sleep</span><div class="unit-field"><input id="sleep-wireless" type="number" min="0" max="60"><em>min</em></div></label></div>
+            <div class="field-row"><label class="field"><span>Bluetooth deep sleep</span><div class="unit-field"><input id="sleep-bt-deep" type="number" min="10" max="60"><em>min</em></div></label><label class="field"><span>2.4 GHz deep sleep</span><div class="unit-field"><input id="sleep-wireless-deep" type="number" min="10" max="60"><em>min</em></div></label></div>
+            <button id="apply-sleep" class="ghost wide">Save timers</button>
+          </article>
+          <article class="panel settings-card tools-card">
+            <h3>Tools</h3>
+            <button id="settings-sync-clock" class="tool-button"><span>◷</span><div><b>Sync display clock</b><small>Use your computer’s date and time</small></div><i>›</i></button>
+            <button id="export-config" class="tool-button"><span>⇩</span><div><b>Export presets</b><small>Save presets to a file</small></div><i>›</i></button>
+            <label class="tool-button import-button"><input id="import-config" type="file" accept="application/json"><span>⇧</span><div><b>Import presets</b><small>Load a saved preset file</small></div><i>›</i></label>
+            <button id="factory-reset" class="tool-button danger-tool"><span>!</span><div><b>Factory reset</b><small>Erase all custom keyboard settings</small></div><i>›</i></button>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <aside id="activity-drawer" class="activity-drawer" aria-hidden="true">
+    <div class="drawer-head"><div><h3>Activity</h3></div><button id="activity-close">×</button></div>
+    <div id="activity-list" class="activity-list"></div>
+    <button id="activity-clear" class="ghost wide">Clear activity</button>
+  </aside>
+  <div id="drawer-scrim" class="scrim"></div>
+
+  <div id="command-modal" class="command-modal hidden" role="dialog" aria-modal="true">
+    <div class="command-box"><input id="command-search" placeholder="Search pages…" autocomplete="off"><div id="command-results"></div><small><kbd>↑↓</kbd> select · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</small></div>
+  </div>
+
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+  <script src="app.js"></script>
+  <script src="display.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+[package]
+name = "darmoshark-k8-studio"
+version = "1.0.0"
+description = "Advanced Linux control studio for the Darmoshark K8"
+authors = ["Darmoshark K8 Linux contributors"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "darmoshark_k8_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "darmoshark-k8-studio"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+fs2 = "0.4"
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+libc = "0.2"
+rustfft = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2", features = ["v2_40"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 8
+panic = "abort"

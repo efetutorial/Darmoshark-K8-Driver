@@ -1,0 +1,4 @@
+# Darmoshark K8 control interface (ROYUAN 3151:4015).
+# uaccess grants the active local session access; the users group is a
+# portable fallback for distributions without systemd-logind ACL handling.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3151", ATTRS{idProduct}=="4015", MODE:="0660", GROUP:="users", TAG+="uaccess"

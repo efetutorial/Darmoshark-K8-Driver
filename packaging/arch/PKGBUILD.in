@@ -1,0 +1,38 @@
+pkgname=darmoshark-k8-studio
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='RGB, LCD, macro and key control for the Darmoshark K8'
+arch=('x86_64' 'aarch64')
+url='https://github.com/@GITHUB_REPOSITORY@'
+_repo='@REPOSITORY_NAME@'
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'libsoup3')
+optdepends=('grim: screen capture on Wayland' 'pipewire: live audio visualization')
+makedepends=('cargo' 'rust')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('@SHA256@')
+
+build() {
+  cd "$_repo-$pkgver"
+  cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+}
+
+check() {
+  cd "$_repo-$pkgver"
+  cargo test --locked --manifest-path src-tauri/Cargo.toml
+}
+
+package() {
+  cd "$_repo-$pkgver"
+  install -Dm755 src-tauri/target/release/darmoshark-k8-studio \
+    "$pkgdir/usr/bin/darmoshark-k8-studio"
+  install -Dm644 packaging/darmoshark-k8.desktop \
+    "$pkgdir/usr/share/applications/darmoshark-k8.desktop"
+  sed -i 's|@EXEC@|darmoshark-k8-studio|' \
+    "$pkgdir/usr/share/applications/darmoshark-k8.desktop"
+  install -Dm644 packaging/darmoshark-k8.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/darmoshark-k8.svg"
+  install -Dm644 packaging/99-darmoshark-k8.rules \
+    "$pkgdir/usr/lib/udev/rules.d/99-darmoshark-k8.rules"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
