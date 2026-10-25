@@ -1,7 +1,7 @@
 [package]
 name = "darmoshark-k8-studio"
 version = "1.0.0"
-description = "Advanced Linux control studio for the Darmoshark K8"
+description = "Desktop control studio for the Darmoshark K8"
 authors = ["Darmoshark K8 Linux contributors"]
 license = "MIT"
 edition = "2021"
@@ -22,14 +22,23 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 fs2 = "0.4"
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-libc = "0.2"
 rustfft = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 webkit2gtk = { version = "2", features = ["v2_40"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
+windows = { version = "0.61", features = [
+    "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming", "Win32_Media_Multimedia",
+    "Win32_System_Com", "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant", "Win32_System_SystemInformation",
+] }
 
 [profile.release]
 strip = true

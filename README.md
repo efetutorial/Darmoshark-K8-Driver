@@ -3,10 +3,11 @@ This driver was written entirely by ai, and it works better than the official on
 # Darmoshark K8 Studio
 
 
-Linux control application for the Darmoshark K8 keyboard, built with Rust and
+Linux and Windows control application for the Darmoshark K8 keyboard, built with Rust and
 Tauri.
 
 ![Linux](https://img.shields.io/badge/platform-Linux-blue)
+![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Rust](https://img.shields.io/badge/backend-Rust-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -19,7 +20,6 @@ Tauri.
 - 125, 250, 500 and 1000 Hz report-rate settings
 - Debounce, sleep, battery and firmware information
 - 128×128 LCD image and GIF upload
-- LCD information cards, screenshots and clock synchronization
 - Screen-color and audio-spectrum lighting modes
 
 ## Supported hardware
@@ -41,6 +41,25 @@ Download a package from the
 | Fedora, openSUSE, RHEL derivatives | `.rpm` |
 | Other glibc-based distributions | `.AppImage` |
 | Arch Linux and derivatives | `PKGBUILD` |
+| Windows 10 / 11 (x64) | `-setup.exe` |
+
+### Windows
+
+Run the `-setup.exe` installer. It installs for the current user and downloads
+Microsoft Edge WebView2 Runtime if it is missing. No udev rule, Zadig, or custom
+USB driver is needed. Connect the K8 by USB and switch it to wired mode. Close
+the manufacturer's driver before opening Studio to avoid competing writes.
+
+Windows builds use the native HID API for keyboard control, GDI for primary
+screen-color sync, and WASAPI loopback for the default playback device's audio
+spectrum. They do not need `grim` or PipeWire.
+
+The CI workflow builds a `darmoshark-k8-windows-x64` artifact containing the
+installer and standalone executable. The standalone executable requires an
+existing WebView2 Runtime. Tagged releases also attach the installer to the
+release. Windows hardware behavior still needs validation on a Windows PC.
+
+### Linux
 
 The Debian and RPM packages install the keyboard udev rule. AppImage users must
 install it separately:
@@ -82,6 +101,26 @@ The included NixOS module installs both the application and its udev rule:
 ```
 
 ## Building from source
+
+### Windows
+
+Install stable Rust with the MSVC toolchain, Visual Studio Build Tools with
+**Desktop development with C++** and a Windows SDK, and Microsoft Edge WebView2
+Runtime. Then run in PowerShell:
+
+```powershell
+cargo install tauri-cli --version '^2' --locked
+git clone https://github.com/efetutorial/Darmoshark-K8-Driver.git
+cd Darmoshark-K8-Driver/src-tauri
+cargo test --locked
+cargo tauri build --bundles nsis -- --locked
+```
+
+The installer is written to `src-tauri/target/release/bundle/nsis/` and the
+executable to `src-tauri/target/release/darmoshark-k8-studio.exe`.
+`tauri.windows.conf.json` is merged automatically when targeting Windows.
+
+### Linux
 
 Install stable Rust and the Linux libraries required by Tauri 2.
 
@@ -139,12 +178,14 @@ cargo tauri build --no-bundle
 
 ## Optional integrations
 
-- `grim` is required for screen capture on Wayland.
-- PipeWire's `pw-cat` is required for audio-spectrum lighting.
+- On Linux, `grim` is required for screen capture on Wayland.
+- On Linux, PipeWire's `pw-cat` is required for audio-spectrum lighting.
+- On Windows, screen and playback capture use built-in APIs.
 
-LCD screen capture uploads a single frame. Continuous desktop mirroring is not
-available because the keyboard protocol stores complete frames through HID
-packets instead of exposing a live framebuffer.
+In **Display**, select a photo or GIF and upload it. Photos replace only the
+selected slot. GIFs retain their animation; the slot selector applies to still
+images. Use **Fn + Backspace** on the keyboard to switch stored pictures.
+The app no longer converts GIFs into still images or fills all slots implicitly.
 
 ## Development
 

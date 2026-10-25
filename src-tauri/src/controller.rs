@@ -14,6 +14,12 @@ pub struct LightingState {
     pub slot: u8,
 }
 
+impl LightingState {
+    pub fn validate(&self) -> Result<(), String> {
+        lighting_report(self).map(|_| ())
+    }
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KeyboardOptions {
@@ -52,68 +58,45 @@ pub struct Status {
     pub debounce: u8,
 }
 
+const EFFECTS: &[(&str, u8)] = &[
+    ("off", 0),
+    ("solid", 1),
+    ("breathing", 2),
+    ("neon", 3),
+    ("wave", 4),
+    ("ripple", 5),
+    ("raindrop", 6),
+    ("snake", 7),
+    ("reactive", 8),
+    ("convergence", 9),
+    ("sine", 10),
+    ("kaleidoscope", 11),
+    ("line_wave", 12),
+    ("user_picture", 13),
+    ("laser", 14),
+    ("circle_wave", 15),
+    ("dazzling", 16),
+    ("rain_down", 17),
+    ("meteor", 18),
+    ("reactive_off", 19),
+    ("music_3", 20),
+    ("screen_color", 21),
+    ("music_2", 22),
+    ("train", 23),
+    ("fireworks", 24),
+    ("user_color", 66),
+];
+
 fn effect_id(name: &str) -> Option<u8> {
-    Some(match name {
-        "off" => 0,
-        "solid" => 1,
-        "breathing" => 2,
-        "neon" => 3,
-        "wave" => 4,
-        "ripple" => 5,
-        "raindrop" => 6,
-        "snake" => 7,
-        "reactive" => 8,
-        "convergence" => 9,
-        "sine" => 10,
-        "kaleidoscope" => 11,
-        "line_wave" => 12,
-        "user_picture" => 13,
-        "laser" => 14,
-        "circle_wave" => 15,
-        "dazzling" => 16,
-        "rain_down" => 17,
-        "meteor" => 18,
-        "reactive_off" => 19,
-        "music_3" => 20,
-        "screen_color" => 21,
-        "music_2" => 22,
-        "train" => 23,
-        "fireworks" => 24,
-        "user_color" => 66,
-        _ => return None,
-    })
+    EFFECTS
+        .iter()
+        .find_map(|(effect, id)| (*effect == name).then_some(*id))
 }
 fn effect_name(id: u8) -> String {
-    [
-        "off",
-        "solid",
-        "breathing",
-        "neon",
-        "wave",
-        "ripple",
-        "raindrop",
-        "snake",
-        "reactive",
-        "convergence",
-        "sine",
-        "kaleidoscope",
-        "line_wave",
-        "user_picture",
-        "laser",
-        "circle_wave",
-        "dazzling",
-        "rain_down",
-        "meteor",
-        "reactive_off",
-        "music_3",
-        "screen_color",
-        "music_2",
-        "train",
-        "fireworks",
-    ]
-    .get(id as usize)
-    .map(|name| (*name).to_owned())
-    .unwrap_or_else(|| format!("unknown_{id}"))
+    EFFECTS
+        .iter()
+        .find_map(|(name, value)| (*value == id).then_some((*name).to_owned()))
+        .unwrap_or_else(|| format!("unknown_{id}"))
 }
 fn direction_value(name: &str) -> u8 {
     match name {

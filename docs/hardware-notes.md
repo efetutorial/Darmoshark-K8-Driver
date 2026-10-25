@@ -48,3 +48,60 @@ Info cards support text, date/time, and memory/uptime snapshots. They only refre
 on user action. Use the built-in clock for continuously advancing time without
 background image uploads. Syncing time does not switch the LCD's active screen;
 choose the clock with the keyboard's own controls.
+
+## Superseded single-photo experiment — 2026-10-24
+
+The K8 (`3151:4015`, vendor usage `ffff:0002`) can retain an old animation
+alongside its five still-image slots. Updating one still slot does not replace
+the other slots or the old GIF.
+
+The locally available official `Darmoshark_setup_2.1.66(WIN20240723).exe`
+identifies the K8 as `yc500_k8_soc`. Its RGB565 uploader
+(`getTFTLCDDataRGBImg` / `setTFTLCDDataRGBImg`) uses `A5` / `25`,
+the frame count at byte 2, and the current frame or still slot at byte 1.
+It retries a busy announcement before sending pixels. These builders agree
+with the existing K8 upload path above.
+
+An initial **One photo everywhere** experiment sent two identical frames and
+then wrote all still slots. This was based on an unverified assumption about
+automatic picture cycling. It also silently selected a GIF's first frame by
+default. The option has been removed; it is not the current upload workflow.
+
+On the attached K8 (firmware 257, profile 0), back-to-back full-image uploads
+without the vendor uploader's final 500 ms wait were rejected partway through
+the still slots. Adding that wait allowed the complete sequence to finish:
+the app's K8 icon was uploaded as two identical animation frames and to all
+five still slots. Every announcement was accepted and every HID write
+succeeded. Native Tauri startup and settings readback also succeeded.
+
+Readback before and after the upload confirmed unchanged firmware, active
+profile, report rate, lighting, keyboard options, sleep timers and debounce.
+The panel itself was not visually inspected, and persistence across a power
+cycle was not tested. No flash-erase, bootloader, or factory-reset command
+was used by this option.
+
+## GIF and individual-slot correction — 2026-10-25
+
+GIF decoding now retains every frame up to the device limit. The firmware has
+one frame delay, so auto timing uses the mean GIF delay instead of taking only
+the first frame's delay. No first-frame or all-slot mode is selected implicitly.
+Still images write only the selected slot; GIFs use the vendor animation path.
+
+Uploads now send the full 128×128 raster, including black letterboxing, rather
+than cropping to non-black bounds. This avoids relying on cropped-region
+replacement to clear pixels from a previously stored image. Column-major
+RGB565 and big-endian pixel bytes match the vendor encoder. Packet tests cover
+asymmetric pixel placement, distinct animation frames, frame/page indices and
+all five still-slot addresses. The 500 ms commit wait is retained.
+
+Image preparation is reported before decoding starts and errors reset the
+progress state. Native deployment uses an optimized release build.
+
+A test GIF (896×1280, 100 frames) was decoded to
+100 distinct 128×128 RGB565 frames with a 67 ms mean frame delay. Optimized
+preparation took approximately 1.3 seconds. On firmware 257 the entire
+100-frame transfer completed, including every full-size HID write. Settings
+readback before and after the transfer confirmed unchanged profile, RGB,
+report rate, options, sleep timers and debounce. Physical appearance still
+requires the user's observation; transfer completion alone is not visual
+verification.

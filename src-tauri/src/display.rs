@@ -2,21 +2,24 @@ use crate::transport::Transport;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{
     codecs::gif::GifDecoder, imageops::FilterType, AnimationDecoder, DynamicImage, GenericImage,
-    ImageFormat, RgbaImage,
+    ImageDecoder, ImageFormat, ImageReader, Limits, RgbaImage,
 };
-use std::{
-    fs,
-    io::Cursor,
-    path::Path,
-    process::{Command, Stdio},
-    thread,
-    time::Duration,
-};
+use std::{io::Cursor, thread, time::Duration};
 
 pub const WIDTH: u32 = 128;
 pub const HEIGHT: u32 = 128;
 const MAX_FRAMES: usize = 222;
+const MAX_INPUT_BYTES: usize = 100 * 1024 * 1024;
 
+fn decode_limits() -> Limits {
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(4096);
+    limits.max_image_height = Some(4096);
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    limits
+}
+
+#[derive(Debug)]
 pub struct Animation {
     pub frames: Vec<Vec<u8>>,
     pub delay: u8,
@@ -46,35 +49,56 @@ pub fn decode(
     filename: &str,
     delay_override: Option<u8>,
 ) -> Result<Animation, String> {
+    decode_image(bytes, filename, delay_override)
+}
+
+fn decode_image(
+    bytes: &[u8],
+    filename: &str,
+    delay_override: Option<u8>,
+) -> Result<Animation, String> {
+    if bytes.len() > MAX_INPUT_BYTES {
+        return Err("Image exceeds 100 MB".into());
+    }
     let format =
         image::guess_format(bytes).map_err(|error| format!("Unsupported image: {error}"))?;
     let mut delay = delay_override.unwrap_or(100);
     let frames = if format == ImageFormat::Gif || filename.to_ascii_lowercase().ends_with(".gif") {
-        let decoder = GifDecoder::new(Cursor::new(bytes))
+        let mut decoder = GifDecoder::new(Cursor::new(bytes))
             .map_err(|error| format!("Could not decode GIF: {error}"))?;
-        let decoded = decoder
-            .into_frames()
-            .collect_frames()
-            .map_err(|error| format!("Could not decode GIF: {error}"))?;
-        if decoded.len() > MAX_FRAMES {
-            return Err(format!(
-                "GIF has {} frames; K8 limit is {MAX_FRAMES}",
-                decoded.len()
-            ));
-        }
-        let mut result = Vec::with_capacity(decoded.len());
-        for (index, frame) in decoded.into_iter().enumerate() {
-            if index == 0 && delay_override.is_none() {
-                let (numerator, denominator) = frame.delay().numer_denom_ms();
-                delay = (numerator / denominator.max(1)).clamp(1, 255) as u8;
+        decoder
+            .set_limits(decode_limits())
+            .map_err(|error| format!("Image is too large: {error}"))?;
+        let mut result = Vec::new();
+        let mut total_delay_ms = 0.0;
+        let mut decoded = decoder.into_frames();
+        loop {
+            if result.len() == MAX_FRAMES {
+                if decoded.next().is_some() {
+                    return Err(format!("GIF exceeds the K8 limit of {MAX_FRAMES} frames"));
+                }
+                break;
             }
+            let Some(frame) = decoded.next() else {
+                break;
+            };
+            let frame = frame.map_err(|error| format!("Could not decode GIF: {error}"))?;
+            let (numerator, denominator) = frame.delay().numer_denom_ms();
+            total_delay_ms += numerator as f64 / denominator.max(1) as f64;
             result.push(fit_frame(DynamicImage::ImageRgba8(frame.into_buffer()))?);
+        }
+        if delay_override.is_none() && !result.is_empty() {
+            delay = (total_delay_ms / result.len() as f64)
+                .round()
+                .clamp(1.0, 255.0) as u8;
         }
         result
     } else {
-        vec![fit_frame(image::load_from_memory(bytes).map_err(
-            |error| format!("Could not decode image: {error}"),
-        )?)?]
+        let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+        reader.limits(decode_limits());
+        vec![fit_frame(reader.decode().map_err(|error| {
+            format!("Could not decode image: {error}")
+        })?)?]
     };
     encode(frames, delay)
 }
@@ -89,39 +113,13 @@ pub fn encode(frames: Vec<Vec<u8>>, delay: u8) -> Result<Animation, String> {
     {
         return Err("Expected 128 x 128 RGBA frames".into());
     }
-    let mut left = WIDTH;
-    let mut top = HEIGHT;
-    let mut right = 0;
-    let mut bottom = 0;
-    for frame in &frames {
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let p = ((y * WIDTH + x) * 4) as usize;
-                if frame[p] != 0 || frame[p + 1] != 0 || frame[p + 2] != 0 {
-                    left = left.min(x);
-                    top = top.min(y);
-                    right = right.max(x + 1);
-                    bottom = bottom.max(y + 1)
-                }
-            }
-        }
-    }
-    let empty = right == 0;
-    let bounds = if empty {
-        [0, 0, 0, 0]
-    } else {
-        [left as u16, top as u16, right as u16, bottom as u16]
-    };
+    // Always replace the complete raster. A cropped upload can leave pixels
+    // from a previous slot image outside the new image's non-black bounds.
     let mut encoded = Vec::with_capacity(frames.len());
     for frame in frames {
         let mut output = Vec::new();
-        let (xs, xe, ys, ye) = if empty {
-            (0, WIDTH, 0, HEIGHT)
-        } else {
-            (left, right, top, bottom)
-        };
-        for x in xs..xe {
-            for y in ys..ye {
+        for x in 0..WIDTH {
+            for y in 0..HEIGHT {
                 let p = ((y * WIDTH + x) * 4) as usize;
                 let value = ((frame[p] as u16 >> 3) << 11)
                     | ((frame[p + 1] as u16 >> 2) << 5)
@@ -134,12 +132,26 @@ pub fn encode(frames: Vec<Vec<u8>>, delay: u8) -> Result<Animation, String> {
     Ok(Animation {
         frames: encoded,
         delay: delay.clamp(1, 255),
-        bounds,
+        bounds: [0, 0, WIDTH as u16, HEIGHT as u16],
     })
 }
 
+pub trait DisplayTransport {
+    fn send(&self, data: &[u8], checksum_at: Option<usize>) -> Result<(), String>;
+    fn announce(&self, data: &[u8]) -> Result<[u8; 64], String>;
+}
+
+impl DisplayTransport for Transport {
+    fn send(&self, data: &[u8], checksum_at: Option<usize>) -> Result<(), String> {
+        Transport::send(self, data, checksum_at)
+    }
+    fn announce(&self, data: &[u8]) -> Result<[u8; 64], String> {
+        self.query(data, Some(7), Duration::from_millis(100), 0xa5)
+    }
+}
+
 pub fn upload(
-    transport: &Transport,
+    transport: &impl DisplayTransport,
     animation: &Animation,
     layer: u8,
     progress: impl Fn(f64, String),
@@ -148,6 +160,9 @@ pub fn upload(
         return Err("Display slot must be 1..5".into());
     }
     let count = animation.frames.len();
+    if count == 0 || count > MAX_FRAMES {
+        return Err("Invalid frame count".into());
+    }
     let size = animation.frames[0].len();
     if animation.frames.iter().any(|frame| frame.len() != size) {
         return Err("Animation frames have different bounds".into());
@@ -165,12 +180,18 @@ pub fn upload(
         handshake[12 + i] = (animation.bounds[i] >> 8) as u8
     }
     handshake[16..18].copy_from_slice(&((size as u32) >> 16).to_le_bytes()[..2]);
-    let reply = transport.query_any(&handshake, Some(7), Duration::from_millis(100))?;
+    let mut reply = transport.announce(&handshake)?;
+    for _ in 0..9 {
+        if reply[1] != 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+        reply = transport.announce(&handshake)?;
+    }
     if reply[1] != 1 {
-        return Err(
-            "Upload rejected. Check that the display is on and the keyboard is in wired mode."
-                .into(),
-        );
+        return Err(format!(
+            "Upload rejected (display status 0x{:02x}). Check that the display is on and the keyboard is in wired mode.", reply[1]
+        ));
     }
     thread::sleep(Duration::from_millis(100));
     let packets = size.div_ceil(56);
@@ -197,11 +218,19 @@ pub fn upload(
             thread::sleep(Duration::from_millis(1))
         }
     }
+    // The vendor uploader waits after the last pixel packet before starting
+    // another transfer. The LCD controller still needs to commit this image.
+    thread::sleep(Duration::from_millis(500));
     progress(1.0, "Complete".into());
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub fn capture_screen() -> Result<String, String> {
+    use std::{
+        path::Path,
+        process::{Command, Stdio},
+    };
     let grim = ["grim", "/run/current-system/sw/bin/grim"]
         .into_iter()
         .find(|command| {
@@ -233,7 +262,9 @@ pub fn capture_screen() -> Result<String, String> {
     Ok(STANDARD.encode(png.into_inner()))
 }
 
+#[cfg(target_os = "linux")]
 pub fn system_card() -> Result<(u8, u64), String> {
+    use std::fs;
     let memory = fs::read_to_string("/proc/meminfo").map_err(|error| error.to_string())?;
     let value = |name: &str| -> Option<u64> {
         memory
@@ -252,22 +283,179 @@ pub fn system_card() -> Result<(u8, u64), String> {
     Ok((((total - available) * 100 / total) as u8, uptime))
 }
 
+#[cfg(target_os = "windows")]
+pub fn capture_screen() -> Result<String, String> {
+    let image = DynamicImage::ImageRgba8(crate::windows_capture::screen(512)?);
+    let mut png = Cursor::new(Vec::new());
+    image
+        .write_to(&mut png, ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    Ok(STANDARD.encode(png.into_inner()))
+}
+
+#[cfg(target_os = "windows")]
+pub fn system_card() -> Result<(u8, u64), String> {
+    crate::windows_capture::system_card()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    #[derive(Default)]
+    struct FakeDisplay {
+        packets: RefCell<Vec<Vec<u8>>>,
+        last_data: RefCell<Option<std::time::Instant>>,
+    }
+    impl DisplayTransport for FakeDisplay {
+        fn send(&self, data: &[u8], _: Option<usize>) -> Result<(), String> {
+            self.packets.borrow_mut().push(data.to_vec());
+            *self.last_data.borrow_mut() = Some(std::time::Instant::now());
+            Ok(())
+        }
+        fn announce(&self, data: &[u8]) -> Result<[u8; 64], String> {
+            if let Some(last_data) = *self.last_data.borrow() {
+                assert!(
+                    last_data.elapsed() >= Duration::from_millis(500),
+                    "Started another LCD transfer before the flash commit wait"
+                );
+            }
+            self.packets.borrow_mut().push(data.to_vec());
+            let mut reply = [0; 64];
+            reply[0] = 0xa5;
+            reply[1] = 1;
+            Ok(reply)
+        }
+    }
+
     #[test]
-    fn rgb565_is_transposed_and_cropped() {
+    fn animated_upload_keeps_distinct_frames_and_one_announcement() {
+        let red = [255, 0, 0, 255].repeat((WIDTH * HEIGHT) as usize);
+        let blue = [0, 0, 255, 255].repeat((WIDTH * HEIGHT) as usize);
+        let animation = encode(vec![red, blue], 75).unwrap();
+        let display = FakeDisplay::default();
+        let progress = RefCell::new(Vec::new());
+        upload(&display, &animation, 4, |value, _| {
+            progress.borrow_mut().push(value)
+        })
+        .unwrap();
+        let packets = display.packets.borrow();
+        let announcements: Vec<_> = packets.iter().filter(|packet| packet[0] == 0xa5).collect();
+        assert_eq!(announcements.len(), 1);
+        assert_eq!(&announcements[0][..6], &[0xa5, 0, 2, 75, 0, 128]);
+        let pixels: Vec<_> = packets.iter().filter(|packet| packet[0] == 0x25).collect();
+        assert_eq!(pixels.len(), 2 * 32768usize.div_ceil(56));
+        for (index, pixel) in pixels.iter().enumerate() {
+            let frame = index / 32768usize.div_ceil(56);
+            assert_eq!(pixel[1], frame as u8);
+            assert_eq!(pixel[2], 2);
+            assert_eq!(pixel[3], 75);
+            assert_eq!(
+                u16::from_le_bytes([pixel[4], pixel[5]]) as usize,
+                index % 32768usize.div_ceil(56)
+            );
+            let color = if frame == 0 { [0xf8, 0] } else { [0, 0x1f] };
+            assert!(pixel[8..8 + pixel[6] as usize]
+                .chunks_exact(2)
+                .all(|value| value == color));
+        }
+        let progress = progress.borrow();
+        assert!(progress.windows(2).all(|values| values[0] <= values[1]));
+        assert_eq!(progress.last(), Some(&1.0));
+    }
+
+    #[test]
+    fn still_upload_only_writes_selected_slot() {
+        let frame = [255, 0, 0, 255].repeat((WIDTH * HEIGHT) as usize);
+        let photo = encode(vec![frame], 100).unwrap();
+        let display = FakeDisplay::default();
+        for slot in 0..5 {
+            let start = display.packets.borrow().len();
+            upload(&display, &photo, slot, |_, _| {}).unwrap();
+            assert!(display.packets.borrow()[start..]
+                .iter()
+                .all(|packet| packet[1] == slot && packet[2] == 1 && packet[3] == 0));
+        }
+    }
+
+    fn gif(frames: usize) -> Vec<u8> {
+        let mut data = Vec::new();
+        let mut encoder = image::codecs::gif::GifEncoder::new(&mut data);
+        for _ in 0..frames {
+            encoder
+                .encode_frame(image::Frame::new(RgbaImage::from_pixel(
+                    1,
+                    1,
+                    image::Rgba([255, 0, 0, 255]),
+                )))
+                .unwrap();
+        }
+        drop(encoder);
+        data
+    }
+
+    #[test]
+    fn gif_limit_preserves_animation() {
+        let bytes = gif(MAX_FRAMES + 1);
+        assert!(decode(&bytes, "test.gif", None)
+            .unwrap_err()
+            .contains("limit"));
+        assert_eq!(decode(&gif(2), "test.gif", Some(75)).unwrap().delay, 75);
+    }
+
+    #[test]
+    fn gif_decode_keeps_motion_and_average_timing() {
+        let mut bytes = Vec::new();
+        let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+        for (color, delay) in [([255, 0, 0, 255], 40), ([0, 0, 255, 255], 120)] {
+            encoder
+                .encode_frame(image::Frame::from_parts(
+                    RgbaImage::from_pixel(128, 128, image::Rgba(color)),
+                    0,
+                    0,
+                    image::Delay::from_numer_denom_ms(delay, 1),
+                ))
+                .unwrap();
+        }
+        drop(encoder);
+        let animation = decode(&bytes, "motion.gif", None).unwrap();
+        assert_eq!(animation.frames.len(), 2);
+        assert_eq!(animation.delay, 80);
+        assert!(animation.frames[0]
+            .chunks_exact(2)
+            .all(|pixel| pixel == [0xf8, 0]));
+        assert!(animation.frames[1]
+            .chunks_exact(2)
+            .all(|pixel| pixel == [0, 0x1f]));
+        assert_eq!(decode(&bytes, "motion.gif", Some(75)).unwrap().delay, 75);
+    }
+
+    #[test]
+    fn rejects_oversized_gif_before_allocating_frames() {
+        let mut bytes = gif(1);
+        bytes[6..8].copy_from_slice(&5000u16.to_le_bytes());
+        assert!(decode(&bytes, "large.gif", None).is_err());
+    }
+    #[test]
+    fn rgb565_uses_full_raster_in_column_order() {
         let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
         let p = ((3 * WIDTH + 2) * 4) as usize;
         frame[p..p + 4].copy_from_slice(&[255, 0, 0, 255]);
         let result = encode(vec![frame], 100).unwrap();
-        assert_eq!(result.bounds, [2, 3, 3, 4]);
-        assert_eq!(result.frames[0], [0xf8, 0]);
+        assert_eq!(result.bounds, [0, 0, 128, 128]);
+        assert_eq!(result.frames[0].len(), 32768);
+        let pixel = ((2 * HEIGHT + 3) * 2) as usize;
+        assert_eq!(&result.frames[0][pixel..pixel + 2], &[0xf8, 0]);
+        assert!(result.frames[0][..pixel].iter().all(|value| *value == 0));
+        assert!(result.frames[0][pixel + 2..]
+            .iter()
+            .all(|value| *value == 0));
     }
     #[test]
     fn black_frame_uses_full_raster() {
         let result = encode(vec![vec![0; (WIDTH * HEIGHT * 4) as usize]], 100).unwrap();
-        assert_eq!(result.bounds, [0; 4]);
+        assert_eq!(result.bounds, [0, 0, 128, 128]);
         assert_eq!(result.frames[0].len(), (WIDTH * HEIGHT * 2) as usize);
     }
     #[test]

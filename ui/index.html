@@ -92,32 +92,14 @@
             <div class="screen-meta"><span id="file-meta">No image selected</span><b id="frame-meta">—</b></div>
           </article>
           <article class="panel upload-panel">
-            <h3>Display content</h3>
-            <label class="field"><span>Source</span><select id="display-source"><option value="image">Image or GIF</option><option value="screen">Screen snapshot</option><option value="card">Info card</option><option value="clock">Built-in clock</option></select></label>
+            <h3>Image or GIF</h3>
             <div id="display-image-fields" class="display-fields"><p>PNG, JPEG, WebP or GIF · 128×128</p>
             <label id="drop-zone" class="drop-zone"><input id="display-file" type="file" accept="image/*"><span class="drop-icon">⇧</span><b>Drop an image or browse</b><small>Up to 100 MB</small></label></div>
-            <div id="display-screen-fields" class="display-fields hidden">
-              <p>Capture one frame, then upload the preview. No continuous mirroring.</p>
-              <button id="display-capture" class="ghost wide">Capture screen</button>
-              <label class="field"><span>Fit</span><select id="display-fit"><option value="contain">Fit entire image</option><option value="cover">Fill display (center crop)</option></select></label>
-            </div>
-            <div id="display-card-fields" class="display-fields hidden">
-              <label class="field"><span>Card</span><select id="display-card-type"><option value="note">Custom text</option><option value="datetime">Date and time snapshot</option><option value="system">Memory and uptime snapshot</option></select></label>
-              <label class="field"><span>Heading</span><input id="display-card-title" maxlength="20" value="HELLO"></label>
-              <label id="display-message-wrap" class="field"><span>Message</span><textarea id="display-card-message" rows="3" maxlength="90" placeholder="Write a short note">Make it yours.</textarea></label>
-              <label class="field"><span>Accent color</span><input id="display-card-color" type="color" value="#79c9a5"></label>
-              <button id="display-card-refresh" class="ghost wide">Refresh preview</button>
-              <p>Cards are saved as images. They do not update automatically.</p>
-            </div>
-            <div id="display-clock-fields" class="display-fields hidden">
-              <p>Sync the keyboard’s own clock with your computer. It keeps running without this app.</p>
-              <p>Select the clock screen using the keyboard’s controls.</p>
-              <button id="display-sync-clock" class="primary wide">Sync clock</button>
-            </div>
             <div class="field-row">
               <label id="display-slot-wrap" class="field"><span>Display slot</span><select id="display-layer"><option value="0">Slot 1</option><option value="1">Slot 2</option><option value="2">Slot 3</option><option value="3">Slot 4</option><option value="4">Slot 5</option></select></label>
               <label id="display-delay-wrap" class="field"><span>GIF frame delay</span><div class="unit-field"><input id="display-delay" type="number" min="1" max="255" placeholder="Auto"><em>ms</em></div></label>
             </div>
+            <p id="display-content-note">Photos replace only the selected slot. GIF files keep their animation.</p>
             <button id="upload-display" class="primary wide">Upload to display</button>
             <div class="upload-progress"><div><span id="upload-progress-bar"></span></div><small id="upload-progress-label">Ready</small></div>
           </article>
@@ -202,7 +184,6 @@
           </article>
           <article class="panel settings-card tools-card">
             <h3>Tools</h3>
-            <button id="settings-sync-clock" class="tool-button"><span>◷</span><div><b>Sync display clock</b><small>Use your computer’s date and time</small></div><i>›</i></button>
             <button id="export-config" class="tool-button"><span>⇩</span><div><b>Export presets</b><small>Save presets to a file</small></div><i>›</i></button>
             <label class="tool-button import-button"><input id="import-config" type="file" accept="application/json"><span>⇧</span><div><b>Import presets</b><small>Load a saved preset file</small></div><i>›</i></label>
             <button id="factory-reset" class="tool-button danger-tool"><span>!</span><div><b>Factory reset</b><small>Erase all custom keyboard settings</small></div><i>›</i></button>
