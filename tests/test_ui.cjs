@@ -10,10 +10,9 @@ await page.route('http://k8.test/**',route=>{
 const path=new URL(route.request().url()).pathname;
 if(path.startsWith('/api/')) {
  if(route.request().method()==='POST') {
- if(path === '/api/display-frame') requests.push({frameBytes:route.request().postDataBuffer().length});
+ if(path === '/api/display') requests.push({imageBytes:route.request().postDataBuffer().length,filename:route.request().headers()['x-filename']});
  else requests.push(JSON.parse(route.request().postData()));
  }
- if(path === '/api/system-card') return route.fulfill({json:{ok:true,memory_percent:42,uptime_seconds:7500}});
 return route.fulfill({json:path==='/api/device'?{connected:false,keys:{A:4,Esc:41},targets:[]}:{ok:true}});
 }
 const name=path==='/'?'index.html':path.slice(1);
@@ -58,36 +57,22 @@ for(const name of ['display','keys','macros','settings']){
 }
 
 await page.click('[data-page="display"]');
-await page.selectOption('#display-source','card');
-assert.equal(await page.locator('#display-preview').isVisible(),true);
-await page.fill('#display-card-message','Test card');
-if(process.env.K8_SCREENSHOT) await page.screenshot({path:process.env.K8_SCREENSHOT,fullPage:true});
-await page.click('#display-card-refresh');
-await page.click('#upload-display');
-assert.equal(requests.at(-1).frameBytes,128*128*4);
-await page.selectOption('#display-card-type','system');
-await page.waitForFunction(()=>!document.querySelector('#upload-display').disabled);
-await page.selectOption('#display-source','clock');
-assert.equal(await page.locator('#upload-display').isVisible(),false);
-await page.click('#display-sync-clock');
-await page.selectOption('#display-source','screen');
-assert.equal(await page.locator('#display-capture').isVisible(),true);
+for (const id of ['display-source','display-screen-fields','display-card-fields','display-clock-fields']) assert.equal(await page.locator('#'+id).count(),0,id);
 assert.equal(await page.locator('#upload-display').isDisabled(),true);
-await page.evaluate(()=>{
- const canvas=document.createElement('canvas');canvas.width=canvas.height=128;
- const ctx=canvas.getContext('2d');ctx.fillStyle='red';ctx.fillRect(0,0,128,128);
- window.testCaptureStream=canvas.captureStream(1);
- Object.defineProperty(navigator,'mediaDevices',{value:{getDisplayMedia:async()=>window.testCaptureStream},configurable:true});
-});
-await page.click('#display-capture');
-await page.waitForFunction(()=>!document.querySelector('#upload-display').disabled);
-assert.equal(await page.evaluate(()=>window.testCaptureStream.getTracks().every(t=>t.readyState==='ended')),true);
-await page.click('#upload-display');
-assert.equal(requests.at(-1).frameBytes,128*128*4);
-await page.selectOption('#display-source','image');
+if(process.env.K8_SCREENSHOT) await page.screenshot({path:process.env.K8_SCREENSHOT,fullPage:true});
 await page.locator('#display-file').setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=','base64')});
+await page.waitForFunction(()=>!document.querySelector('#upload-display').disabled);
 assert.equal(await page.locator('#upload-display').isDisabled(),false);
 assert.equal(await page.locator('#display-preview').isVisible(),true);
+await page.click('#upload-display');
+assert.equal(requests.at(-1).imageBytes,68);
+assert.equal(requests.at(-1).filename,'test.png');
+await page.waitForFunction(()=>!window.k8Display.isBusy());
+// Display fits both the native minimum size and a narrow browser window.
+for (const width of [1050, 640]) {
+ await page.setViewportSize({width,height:700});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+}
 await page.setViewportSize({width:1050,height:700});await page.click('[data-page="lighting"]');
 assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
 assert.deepEqual(errors,[]);
@@ -106,7 +91,6 @@ await nativePage.addInitScript(()=>{
   if(command==='frontend_report')return null;
   if(args.path==='/api/device')return {connected:false,keys:{A:4,Esc:41},targets:[]};
   if(args.path==='/api/progress')return {active:false,value:0,label:'Ready'};
-  if(args.path==='/api/system-card')return {ok:true,memory_percent:42,uptime_seconds:7500};
   return {ok:true};
  }}};
 });
@@ -127,6 +111,6 @@ assert.equal(nativeUpload.args.query.filename,'native.png');
 assert.equal(nativeUpload.args.bytes.length,68);
 assert.equal(nativeUpload.args.bodyValue,null);
 await nativePage.close();
-console.log('PASS: navigation, English text, mode controls, normalized requests, display cards, snapshots, capture cleanup, desktop layouts; no browser errors.');
+console.log('PASS: navigation, English text, mode controls, normalized requests, image-only display controls, photo upload, desktop layouts; no browser errors.');
 await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

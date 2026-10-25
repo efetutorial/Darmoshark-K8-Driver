@@ -22,6 +22,7 @@ const KEYBOARD_LAYOUT = [
 
 const state = {
   base: "", device: null, status: null, keys: {}, targets: [], profile: 0,
+  dirtyPages: new Set(), pressedKeys: new Set(), refreshing: false, liveStarting: false, presetRecovery: false,
   selectedKey: null, mapLayer: "normal", displayFile: null, macroEvents: [],
   recording: false, recordStart: 0, lastRecordAt: 0,
   live: {stream:null, timer:null, audio:null, inFlight:false, native:false}, activities: []
@@ -190,25 +191,30 @@ function populateDeviceData(data) {
 }
 
 async function refreshDevice(silent = false) {
+  if (state.refreshing) return;
+  state.refreshing = true;
   try {
     const device = await api("/api/device");
     populateDeviceData(device);
-    if (device.connected && (!silent || !state.status)) await refreshStatus(true);
+    if (device.connected) await refreshStatus(true, !silent || !state.status);
     if (!device.connected) state.status = null;
     if (!silent) toast("Keyboard refreshed", device.connected ? "Connected" : "Keyboard not found", !device.connected);
   } catch (error) {
     $("#connection-dot").classList.remove("online");
     $("#offline-banner").classList.remove("hidden");
     if (!silent) toast("Cannot connect to keyboard", error.message, true);
-  }
+  } finally { state.refreshing = false; }
 }
 
-async function refreshStatus(silent = false) {
+async function refreshStatus(silent = false, force = true) {
   try {
     const data = await api("/api/status");
+    const profileChanged = state.status && state.profile !== data.status.profile;
+    if (profileChanged) { state.dirtyPages.clear(); force = true; }
     state.status = data.status;
     state.profile = data.status.profile;
-    applyStatus(data.status);
+    applyStatus(data.status, force);
+    if (profileChanged) toast("Active profile updated", `Profile ${state.profile + 1}`);
     if (!silent) toast("Keyboard refreshed", `Firmware ${data.status.firmware}`);
   } catch (error) {
     if (!silent) toast("Cannot read keyboard settings", error.message, true);
@@ -216,29 +222,34 @@ async function refreshStatus(silent = false) {
   }
 }
 
-function applyStatus(status) {
+function applyStatus(status, force = true) {
+  if (force) state.dirtyPages.clear();
   $$(".profile-switch button").forEach(button => button.classList.toggle("active", +button.dataset.profile === status.profile));
 
-  if ([...$("#effect").options].some(option => option.value === status.lighting.effect)) $("#effect").value = status.lighting.effect;
-  setColor(status.lighting.color);
-  $("#brightness").value = status.lighting.brightness;
-  $("#speed").value = status.lighting.speed;
-  updateEffectFields();
-  $("#direction").value = status.lighting.direction;
-  $("#rgb-slot").value = status.lighting.slot || 1;
-  $("#rainbow").checked = status.lighting.rainbow;
-  updateRangeLabels(); updateEffectFields();
+  if (force || !state.dirtyPages.has("lighting")) {
+    if ([...$("#effect").options].some(option => option.value === status.lighting.effect)) $("#effect").value = status.lighting.effect;
+    setColor(status.lighting.color);
+    $("#brightness").value = status.lighting.brightness;
+    $("#speed").value = status.lighting.speed;
+    updateEffectFields();
+    $("#direction").value = status.lighting.direction;
+    $("#rgb-slot").value = status.lighting.slot || 1;
+    $("#rainbow").checked = status.lighting.rainbow;
+    updateRangeLabels(); updateEffectFields();
 
-  $("#report-rate").value = status.report_rate;
-  $("#debounce").value = status.debounce;
-  $("#debounce-value").textContent = `${status.debounce} ms`;
-  Object.entries(status.options).forEach(([key, value]) => {
-    const input = $(`[data-option="${key}"]`); if (input) input.checked = value;
-  });
-  $("#sleep-bt").value = Math.round(status.sleep.bluetooth / 60);
-  $("#sleep-wireless").value = Math.round(status.sleep.wireless / 60);
-  $("#sleep-bt-deep").value = Math.round(status.sleep.bluetooth_deep / 60);
-  $("#sleep-wireless-deep").value = Math.round(status.sleep.wireless_deep / 60);
+  }
+  if (force || !state.dirtyPages.has("settings")) {
+    $("#report-rate").value = status.report_rate;
+    $("#debounce").value = status.debounce;
+    $("#debounce-value").textContent = `${status.debounce} ms`;
+    Object.entries(status.options).forEach(([key, value]) => {
+      const input = $(`[data-option="${key}"]`); if (input) input.checked = value;
+    });
+    $("#sleep-bt").value = Math.round(status.sleep.bluetooth / 60);
+    $("#sleep-wireless").value = Math.round(status.sleep.wireless / 60);
+    $("#sleep-bt-deep").value = Math.round(status.sleep.bluetooth_deep / 60);
+    $("#sleep-wireless-deep").value = Math.round(status.sleep.wireless_deep / 60);
+  }
 }
 
 function setColor(value) {
@@ -324,11 +335,61 @@ async function applyLighting(button = $("#apply-lighting"), quiet = false) {
   const payload = lightingPayload();
   await stopLive();
   await withBusy(button, () => post("/api/rgb", payload));
+  state.dirtyPages.delete("lighting");
   if (!quiet) toast("Lighting applied", EFFECTS[payload.effect] || payload.effect);
 }
 
+function validatePreset(preset) {
+  const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+  if (!preset || typeof preset !== "object" || typeof preset.name !== "string" ||
+      !preset.name.trim() || preset.name.length > 100 || !Object.hasOwn(EFFECTS, preset.effect) ||
+      typeof preset.color !== "string" || !/^#[0-9a-f]{6}$/i.test(preset.color) ||
+      !integer(preset.brightness, 0, 4) || !integer(preset.speed, 0, 4) ||
+      typeof preset.rainbow !== "boolean" || !["right", "left", "down", "up"].includes(preset.direction) ||
+      !integer(preset.slot ?? 1, 1, 4)) throw new Error("Invalid lighting preset");
+  return {name:preset.name, effect:preset.effect, color:preset.color, brightness:preset.brightness,
+    speed:preset.speed, rainbow:preset.rainbow, direction:preset.direction, slot:preset.slot ?? 1};
+}
+
+function readPresets() {
+  let raw;
+  try {
+    raw = localStorage.getItem("k8-presets");
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) throw new Error("Invalid preset storage");
+    const valid = [];
+    for (const preset of parsed) {
+      try { valid.push(validatePreset(preset)); } catch { state.presetRecovery = true; }
+    }
+    if (state.presetRecovery) {
+      try {
+        localStorage.setItem("k8-presets-recovery", raw);
+        localStorage.setItem("k8-presets", JSON.stringify(valid.slice(-20)));
+      } catch { /* Keep valid presets usable even when storage is full. */ }
+    }
+    return valid.slice(-20);
+  } catch {
+    state.presetRecovery = true;
+    try {
+      if (raw) localStorage.setItem("k8-presets-recovery", raw);
+      localStorage.removeItem("k8-presets");
+    } catch { /* Storage may be unavailable; the rest of the app still works. */ }
+    return [];
+  }
+}
+
+function importPresets(parsed) {
+  if (!parsed || (parsed.version !== undefined && parsed.version !== 1) || !Array.isArray(parsed.presets)) {
+    throw new Error("Invalid preset file");
+  }
+  const presets = parsed.presets.map(validatePreset).slice(-20);
+  localStorage.setItem("k8-presets", JSON.stringify(presets));
+  renderPresets();
+  return presets.length;
+}
+
 function renderPresets() {
-  const presets = JSON.parse(localStorage.getItem("k8-presets") || "[]");
+  const presets = readPresets();
   const root = $("#preset-list"); root.innerHTML = "";
   if (!presets.length) { root.innerHTML = '<span class="empty-presets">No presets yet</span>'; return; }
   presets.forEach((preset, index) => {
@@ -351,31 +412,111 @@ function renderPresets() {
 }
 
 async function stopLive(notifyBackend = true) {
-  const native = state.live.native;
-  if (state.live.timer) clearInterval(state.live.timer);
-  if (state.live.stream) state.live.stream.getTracks().forEach(track => track.stop());
-  if (state.live.audio) state.live.audio.close();
+  const session = state.live;
   state.live = {stream:null,timer:null,audio:null,inFlight:false,native:false};
+  if (session.timer) clearInterval(session.timer);
+  if (session.stream) session.stream.getTracks().forEach(track => track.stop());
+  if (session.audio) await session.audio.close().catch(() => {});
+  $("#capture-video").srcObject = null;
   $("#lighting-live-label").textContent = "PREVIEW";
   $("#live-stop").disabled = true;
-  if (native && notifyBackend) {
-    try { await post("/api/live-native-stop"); } catch { /* Session may already be gone. */ }
-  }
+  if (session.native && notifyBackend) await post("/api/live-native-stop");
 }
 
-async function pushLive(path, data) {
-  if (state.live.inFlight) return;
-  state.live.inFlight = true;
+async function pushLive(path, data, session = state.live) {
+  if (session !== state.live || session.inFlight) return;
+  session.inFlight = true;
   try { await post(path, data); }
-  catch (error) { await stopLive(); toast("Live sync stopped", error.message, true); }
-  finally { state.live.inFlight = false; }
+  catch (error) {
+    if (session === state.live) { await stopLive(); toast("Live sync stopped", error.message, true); }
+  } finally { session.inFlight = false; }
+}
+
+async function startScreenCapture(session, lighting) {
+  const stream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false});
+  session.stream = stream;
+  const video = $("#capture-video");
+  video.srcObject = stream;
+  await video.play();
+  stream.getVideoTracks()[0].addEventListener("ended", () => {
+    if (session === state.live) stopLive().catch(error => toast("Could not stop sync", error.message, true));
+  });
+  await post("/api/rgb", lighting);
+  const canvas = $("#capture-canvas");
+  const context = canvas.getContext("2d", {willReadFrequently:true});
+  session.timer = setInterval(() => {
+    context.drawImage(video, 0, 0, 1, 1);
+    pushLive("/api/live-screen", {rgba:[...context.getImageData(0,0,1,1).data]}, session);
+  }, 40);
+}
+
+async function startAudioCapture(session, lighting) {
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true}); }
+  catch { stream = await navigator.mediaDevices.getUserMedia({audio:true}); }
+  if (!stream.getAudioTracks().length) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = await navigator.mediaDevices.getUserMedia({audio:true});
+  }
+  session.stream = stream;
+  stream.getTracks().forEach(track => track.addEventListener("ended", () => {
+    if (session === state.live) stopLive().catch(error => toast("Could not stop sync", error.message, true));
+  }));
+  const audio = new AudioContext();
+  session.audio = audio;
+  const analyser = audio.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = .4;
+  audio.createMediaStreamSource(stream).connect(analyser);
+  const spectrum = new Uint8Array(analyser.frequencyBinCount);
+  const bars = $$("#spectrum i");
+  await post("/api/rgb", lighting);
+  session.timer = setInterval(() => {
+    analyser.getByteFrequencyData(spectrum);
+    const first = [...spectrum.slice(0,100)];
+    const base = Math.min(...first.slice(20,40));
+    const adjusted = first.map(value => value - base);
+    const peak = Math.max(...adjusted,1);
+    const levels = adjusted.map(value => Math.max(0,Math.min(6,Math.round(value/(peak/6))))).slice(27,59);
+    levels.forEach((level,index) => bars[index]?.style.setProperty("--h", `${8+level*7}px`));
+    pushLive("/api/live-audio", {levels}, session);
+  }, 30);
+}
+
+async function startLive(kind) {
+  if (state.liveStarting) return;
+  state.liveStarting = true;
+  $("#live-screen").disabled = $("#live-audio").disabled = true;
+  try {
+    await stopLive();
+    const effect = kind === "screen" ? "screen_color" : $("#effect").value === "music_2" ? "music_2" : "music_3";
+    $("#effect").value = effect;
+    updateEffectFields();
+    const lighting = lightingPayload();
+    const session = state.live;
+    if (window.__TAURI__?.core?.invoke) {
+      await post("/api/live-native-start", {kind, lighting});
+      session.native = true;
+    } else if (kind === "screen") await startScreenCapture(session, lighting);
+    else await startAudioCapture(session, lighting);
+    $("#live-stop").disabled = false;
+    $("#lighting-live-label").textContent = kind === "screen" ? "SCREEN SYNC" : "AUDIO SYNC";
+    toast(kind === "screen" ? "Screen sync started" : "Audio sync started");
+  } catch (error) {
+    await stopLive().catch(() => {});
+    toast("Could not start live sync", error.message, true);
+  } finally {
+    state.liveStarting = false;
+    $("#live-screen").disabled = $("#live-audio").disabled = false;
+  }
 }
 
 function chooseDisplayFile(file) {
   if (!file) return;
+  if (window.k8Display?.isBusy()) return toast("Upload in progress", "Wait before selecting another image.", true);
   if (file.size > 100 * 1024 * 1024) return toast("Image exceeds 100 MB", "", true);
-  if (window.k8Display) window.k8Display.selectImage();
   state.displayFile = file;
+  if (window.k8Display) window.k8Display.selectImage();
   const preview = $("#display-preview"); if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src); preview.src = URL.createObjectURL(file); preview.classList.add("visible");
   $("#display-placeholder").classList.add("hidden");
   $("#file-meta").textContent = file.name;
@@ -419,7 +560,9 @@ function eventKeyName(event) {
   if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
   if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5);
   if (/^F(?:[1-9]|1[0-2])$/.test(event.code)) return event.code;
-  return {Escape:"Esc",Enter:"Enter",Space:"Space",Tab:"Tab",Backspace:"Backspace",Minus:"Minus",Equal:"Equal",
+  return {ControlLeft:"LeftCtrl",ControlRight:"RightCtrl",ShiftLeft:"LeftShift",ShiftRight:"RightShift",
+    AltLeft:"LeftAlt",AltRight:"RightAlt",MetaLeft:"LeftMeta",MetaRight:"RightMeta",IntlBackslash:"NonUSBackslash",
+    Escape:"Esc",Enter:"Enter",Space:"Space",Tab:"Tab",Backspace:"Backspace",Minus:"Minus",Equal:"Equal",
     BracketLeft:"LeftBracket",BracketRight:"RightBracket",Backslash:"Backslash",Semicolon:"Semicolon",Quote:"Quote",
     Backquote:"Grave",Comma:"Comma",Period:"Period",Slash:"Slash",CapsLock:"CapsLock",PrintScreen:"PrintScreen",
     ScrollLock:"ScrollLock",Pause:"Pause",Insert:"Insert",Home:"Home",PageUp:"PageUp",Delete:"Delete",End:"End",
@@ -432,6 +575,12 @@ function handleRecording(event, action) {
   if (event.code === "Escape" && action === "down") { stopRecording(); return; }
   if (event.repeat) return;
   const key = eventKeyName(event); if (!key) return;
+  if (action === "down") state.pressedKeys.add(key);
+  else state.pressedKeys.delete(key);
+  appendRecordedEvent(key, action);
+}
+
+function appendRecordedEvent(key, action) {
   const time = performance.now();
   if (state.macroEvents.length) state.macroEvents[state.macroEvents.length - 1].delay = Math.min(65535, Math.max(0, Math.round(time - state.lastRecordAt)));
   state.macroEvents.push({key, action, delay:30}); state.lastRecordAt = time;
@@ -439,6 +588,9 @@ function handleRecording(event, action) {
 }
 
 function stopRecording() {
+  if (!state.recording) return;
+  for (const key of state.pressedKeys) appendRecordedEvent(key, "up");
+  state.pressedKeys.clear();
   state.recording = false; $("#recording-hint").classList.add("hidden");
   $("#macro-record").textContent = "● Record"; toast("Recording saved", `${state.macroEvents.length} events`);
 }
@@ -470,6 +622,13 @@ function renderCommands() {
 }
 
 function wireEvents() {
+  const trackEdit = event => {
+    const page = event.target.closest(".page");
+    if (page && ["lighting", "settings"].includes(page.id)) state.dirtyPages.add(page.id);
+  };
+  document.addEventListener("input", trackEdit);
+  document.addEventListener("change", trackEdit);
+  window.addEventListener("blur", () => { if (state.recording) stopRecording(); });
   $$(".nav-item,.jump").forEach(button => button.addEventListener("click", () => navigate(button.dataset.page)));
   $("#refresh").addEventListener("click", () => refreshDevice());
   $$(".profile-switch button").forEach(button => button.addEventListener("click", async () => {
@@ -477,7 +636,7 @@ function wireEvents() {
     catch(error){toast("Could not change profile",error.message,true)}
   }));
 
-  const chooseColor = value => { $("#rainbow").checked=false; setColor(value); updateEffectFields(); };
+  const chooseColor = value => { state.dirtyPages.add("lighting"); $("#rainbow").checked=false; setColor(value); updateEffectFields(); };
   $("#color").addEventListener("input", e=>chooseColor(e.target.value));
   $("#color-hex").addEventListener("change", e=>chooseColor(e.target.value));
   $$("#color-palette button").forEach(button=>button.addEventListener("click",()=>chooseColor(button.dataset.color)));
@@ -485,17 +644,19 @@ function wireEvents() {
   $("#effect").addEventListener("change", updateEffectFields);
   $("#rainbow").addEventListener("change", updateEffectFields);
   $("#apply-lighting").addEventListener("click", async event=>{try{await applyLighting(event.currentTarget)}catch(error){toast("Could not apply lighting",error.message,true)}});
-  $("#save-preset").addEventListener("click",()=>{const name=prompt("Preset name:",`Preset ${new Date().toLocaleTimeString("en",{hour:"2-digit",minute:"2-digit"})}`);if(!name)return;const presets=JSON.parse(localStorage.getItem("k8-presets")||"[]");presets.push({name,...lightingPayload()});localStorage.setItem("k8-presets",JSON.stringify(presets.slice(-20)));renderPresets();toast("Preset saved",name)});
+  $("#save-preset").addEventListener("click",()=>{const name=prompt("Preset name:",`Preset ${new Date().toLocaleTimeString("en",{hour:"2-digit",minute:"2-digit"})}`);if(!name)return;const presets=readPresets();presets.push({name,...lightingPayload()});localStorage.setItem("k8-presets",JSON.stringify(presets.slice(-20)));renderPresets();toast("Preset saved",name)});
 
-  $("#live-stop").addEventListener("click",async()=>{await stopLive();toast("Live sync stopped")});
-  $("#live-screen").addEventListener("click",async()=>{await stopLive();try{if(window.__TAURI__?.core?.invoke){await post("/api/live-native-start",{kind:"screen"});state.live.native=true;$("#live-stop").disabled=false;$("#effect").value="screen_color";updateEffectFields();$("#lighting-live-label").textContent="SCREEN SYNC";toast("Screen sync started");return}const stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});state.live.stream=stream;$("#live-stop").disabled=false;const video=$("#capture-video");video.srcObject=stream;await video.play();stream.getVideoTracks()[0].addEventListener("ended",()=>stopLive());$("#effect").value="screen_color";updateEffectFields();await post("/api/rgb",{...lightingPayload(),effect:"screen_color"});const canvas=$("#capture-canvas"),context=canvas.getContext("2d",{willReadFrequently:true});state.live.timer=setInterval(()=>{context.drawImage(video,0,0,1,1);pushLive("/api/live-screen",{rgba:[...context.getImageData(0,0,1,1).data]})},40);$("#lighting-live-label").textContent="SCREEN SYNC";toast("Screen sync started")}catch(error){await stopLive();toast("Could not start screen capture",error.message,true)}});
-  $("#live-audio").addEventListener("click",async()=>{await stopLive();try{if(window.__TAURI__?.core?.invoke){await post("/api/live-native-start",{kind:"audio"});state.live.native=true;$("#live-stop").disabled=false;$("#effect").value="music_3";updateEffectFields();$("#lighting-live-label").textContent="AUDIO SYNC";toast("Audio sync started");return}let stream;try{stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true})}catch{stream=await navigator.mediaDevices.getUserMedia({audio:true})}if(!stream.getAudioTracks().length){stream.getTracks().forEach(track=>track.stop());stream=await navigator.mediaDevices.getUserMedia({audio:true})}state.live.stream=stream;$("#live-stop").disabled=false;stream.getTracks().forEach(track=>track.addEventListener("ended",()=>stopLive()));const audio=new AudioContext();state.live.audio=audio;const analyser=audio.createAnalyser();analyser.fftSize=2048;analyser.smoothingTimeConstant=.4;audio.createMediaStreamSource(stream).connect(analyser);const spectrum=new Uint8Array(analyser.frequencyBinCount);const effect=$("#effect").value==="music_2"?"music_2":"music_3";$("#effect").value=effect;updateEffectFields();await post("/api/rgb",{...lightingPayload(),effect});state.live.timer=setInterval(()=>{analyser.getByteFrequencyData(spectrum);const first=[...spectrum.slice(0,100)],base=Math.min(...first.slice(20,40)),adjusted=first.map(v=>v-base),peak=Math.max(...adjusted,1),levels=adjusted.map(v=>Math.max(0,Math.min(6,Math.round(v/(peak/6))))).slice(27,59);levels.forEach((level,index)=>{$$("#spectrum i")[index]?.style.setProperty("--h",`${8+level*7}px`)});pushLive("/api/live-audio",{levels})},30);$("#lighting-live-label").textContent="AUDIO SYNC";toast("Audio sync started")}catch(error){await stopLive();toast("Could not start audio capture",error.message,true)}});
+  $("#live-stop").addEventListener("click", async () => {
+    try { await stopLive(); toast("Live sync stopped"); }
+    catch (error) { toast("Could not stop sync", error.message, true); }
+  });
+  $("#live-screen").addEventListener("click", () => startLive("screen"));
+  $("#live-audio").addEventListener("click", () => startLive("audio"));
 
   const drop=$("#drop-zone"); $("#display-file").addEventListener("change",e=>chooseDisplayFile(e.target.files[0]));
   ["dragenter","dragover"].forEach(type=>drop.addEventListener(type,e=>{e.preventDefault();drop.classList.add("drag")}));
   ["dragleave","drop"].forEach(type=>drop.addEventListener(type,e=>{e.preventDefault();drop.classList.remove("drag")}));
   drop.addEventListener("drop",e=>chooseDisplayFile(e.dataTransfer.files[0]));
-  [$("#settings-sync-clock")].filter(Boolean).forEach(button=>button.addEventListener("click",async()=>{try{await withBusy(button,()=>post("/api/clock"));toast("Display clock synced",new Date().toLocaleString("en"))}catch(error){toast("Could not sync clock",error.message,true)}}));
 
   $$("[data-map-layer]").forEach(button=>button.addEventListener("click",()=>{state.mapLayer=button.dataset.mapLayer;$$("[data-map-layer]").forEach(x=>x.classList.toggle("active",x===button));if(state.selectedKey)selectKey(state.selectedKey)}));
   $("#key-color").addEventListener("input",e=>setKeyColor(e.target.value)); $("#key-color-hex").addEventListener("change",e=>setKeyColor(e.target.value));
@@ -521,22 +682,32 @@ function wireEvents() {
 
   $("#macro-add").addEventListener("click",()=>{state.macroEvents.push({key:"A",action:"down",delay:60});renderMacroEvents()});
   $("#macro-clear").addEventListener("click",()=>{state.macroEvents=[];renderMacroEvents()});
-  $("#macro-record").addEventListener("click",()=>{if(state.recording){stopRecording();return}state.macroEvents=[];state.recording=true;state.lastRecordAt=performance.now();$("#recording-hint").classList.remove("hidden");$("#macro-record").textContent="■ Stop recording";renderMacroEvents();toast("Recording started","Press Esc to finish")});
+  $("#macro-record").addEventListener("click",()=>{if(state.recording){stopRecording();return}state.macroEvents=[];state.pressedKeys.clear();state.recording=true;state.lastRecordAt=performance.now();$("#recording-hint").classList.remove("hidden");$("#macro-record").textContent="■ Stop recording";renderMacroEvents();toast("Recording started","Press Esc to finish")});
   document.addEventListener("keydown",event=>handleRecording(event,"down"),true); document.addEventListener("keyup",event=>handleRecording(event,"up"),true);
-  $("#apply-macro").addEventListener("click",async event=>{if(!state.macroEvents.length)return toast("Add or record events first","",true);try{await withBusy(event.currentTarget,()=>post("/api/macro",{source:$("#macro-source").value,index:+$("#macro-index").value,repeat_count:+$("#macro-repeat").value,mode:$("#macro-mode").value,profile:state.profile,events:state.macroEvents}));toast("Macro saved",`${state.macroEvents.length} events · Slot ${$("#macro-index").value}`)}catch(error){toast("Could not save macro",error.message,true)}});
+  $("#apply-macro").addEventListener("click",async event=>{if(state.recording)stopRecording();if(!$("#macro-index").reportValidity() || !$("#macro-repeat").reportValidity())return;if(!state.macroEvents.length)return toast("Add or record events first","",true);try{await withBusy(event.currentTarget,()=>post("/api/macro",{source:$("#macro-source").value,index:+$("#macro-index").value,repeat_count:+$("#macro-repeat").value,mode:$("#macro-mode").value,profile:state.profile,events:state.macroEvents}));toast("Macro saved",`${state.macroEvents.length} events · Slot ${$("#macro-index").value}`)}catch(error){toast("Could not save macro",error.message,true)}});
 
   $("#debounce").addEventListener("input",e=>$("#debounce-value").textContent=`${e.target.value} ms`);
   $("#apply-performance").addEventListener("click",async event=>{try{await withBusy(event.currentTarget,async()=>{await post("/api/rate",{hz:+$("#report-rate").value,profile:state.profile});await post("/api/debounce",{milliseconds:+$("#debounce").value})});toast("Performance saved",`${$("#report-rate").value} Hz · ${$("#debounce").value} ms`);await refreshStatus(true)}catch(error){toast("Could not save performance",error.message,true)}});
   $("#apply-options").addEventListener("click",async event=>{const options={profile:state.profile};$$('[data-option]').forEach(input=>options[input.dataset.option]=input.checked);try{await withBusy(event.currentTarget,()=>post("/api/options",options));toast("Keyboard options saved",`Profile ${state.profile+1}`)}catch(error){toast("Could not save options",error.message,true)}});
-  $("#apply-sleep").addEventListener("click",async event=>{const payload={bluetooth:+$("#sleep-bt").value,wireless:+$("#sleep-wireless").value,bluetooth_deep:+$("#sleep-bt-deep").value,wireless_deep:+$("#sleep-wireless-deep").value};try{await withBusy(event.currentTarget,()=>post("/api/sleep",payload));toast("Sleep timers saved")}catch(error){toast("Could not save timers",error.message,true)}});
+  $("#apply-sleep").addEventListener("click",async event=>{if(!["#sleep-bt","#sleep-wireless","#sleep-bt-deep","#sleep-wireless-deep"].every(id=>$(id).reportValidity()))return;const payload={bluetooth:+$("#sleep-bt").value,wireless:+$("#sleep-wireless").value,bluetooth_deep:+$("#sleep-bt-deep").value,wireless_deep:+$("#sleep-wireless-deep").value};try{await withBusy(event.currentTarget,()=>post("/api/sleep",payload));toast("Sleep timers saved")}catch(error){toast("Could not save timers",error.message,true)}});
   $("#factory-reset").addEventListener("click",async()=>{if(!confirm("Erase all custom keyboard settings and restore factory defaults?"))return;try{await post("/api/reset");toast("Factory settings restored");setTimeout(()=>refreshStatus(true),1300)}catch(error){toast("Reset failed",error.message,true)}});
-  $("#export-config").addEventListener("click",()=>{const blob=new Blob([JSON.stringify({version:1,presets:JSON.parse(localStorage.getItem("k8-presets")||"[]")},null,2)],{type:"application/json"});const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="darmoshark-k8-studio.json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast("Presets exported")});
-  $("#import-config").addEventListener("change",async event=>{try{const parsed=JSON.parse(await event.target.files[0].text());if(!Array.isArray(parsed.presets))throw new Error("Invalid preset file");localStorage.setItem("k8-presets",JSON.stringify(parsed.presets.slice(-20)));renderPresets();toast("Presets imported",`${parsed.presets.length} presets`)}catch(error){toast("Could not import file",error.message,true)}});
+  $("#export-config").addEventListener("click",()=>{const blob=new Blob([JSON.stringify({version:1,presets:readPresets()},null,2)],{type:"application/json"});const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="darmoshark-k8-studio.json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast("Presets exported")});
+  $("#import-config").addEventListener("change", async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      if (file.size > 1024 * 1024) throw new Error("Preset file exceeds 1 MB");
+      const count = importPresets(JSON.parse(await file.text()));
+      toast("Presets imported", `${count} presets`);
+    } catch (error) { toast("Could not import file", error.message, true); }
+    finally { event.target.value = ""; }
+  });
 
   $("#activity-open").addEventListener("click",()=>openDrawer(true)); $("#activity-close").addEventListener("click",()=>openDrawer(false)); $("#drawer-scrim").addEventListener("click",()=>openDrawer(false));
   $("#activity-clear").addEventListener("click",()=>{state.activities=[];renderActivities()});
   $("#command-open").addEventListener("click",()=>openCommands()); $("#command-modal").addEventListener("click",event=>{if(event.target===$("#command-modal"))openCommands(false)}); $("#command-search").addEventListener("input",renderCommands);
   document.addEventListener("keydown", event => {
+    if (state.recording) return;
     if ((event.ctrlKey || event.metaKey) && ["+", "-", "=", "0"].includes(event.key)) {
       event.preventDefault();
     } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -588,6 +759,7 @@ async function boot() {
   renderPresets();
   renderActivities();
   wireEvents();
+  if (state.presetRecovery) { toast("Recovered preset storage", "Invalid presets were skipped; other settings are available.", true); state.presetRecovery = false; }
   updateEffectFields();
   await stopLive(false);
   setKeyColor("#ff6432");

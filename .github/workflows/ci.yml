@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
   pull_request:
 
@@ -8,6 +9,29 @@ permissions:
   contents: read
 
 jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Test Windows core
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build Windows installer
+        uses: tauri-apps/tauri-action@v1
+        with:
+          projectPath: src-tauri
+          args: --bundles nsis -- --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darmoshark-k8-windows-x64
+          path: |
+            src-tauri/target/release/darmoshark-k8-studio.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
   rust:
     runs-on: ubuntu-24.04
     steps:

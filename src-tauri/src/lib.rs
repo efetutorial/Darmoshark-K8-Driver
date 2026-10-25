@@ -2,16 +2,20 @@ mod controller;
 mod display;
 mod keys;
 mod live;
+mod requests;
 mod transport;
+#[cfg(target_os = "windows")]
+mod windows_capture;
 
-use controller::{Controller, KeyboardOptions, LightingState};
-use serde::{Deserialize, Serialize};
+use controller::{Controller, LightingState};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     env,
     sync::{Arc, Mutex},
 };
+#[cfg(target_os = "linux")]
 use tauri::Manager;
 
 #[derive(Clone, Serialize)]
@@ -33,18 +37,13 @@ struct AppState {
     device: Arc<Mutex<()>>,
     progress: Mutex<Progress>,
     live: Mutex<Option<live::LiveSession>>,
+    upload: Mutex<()>,
 }
 
 fn request_body<'a>(value: &'a Option<Value>) -> Result<&'a Value, String> {
     value
         .as_ref()
         .ok_or_else(|| "Request body is missing".into())
-}
-fn number(value: &Value, name: &str) -> Result<u64, String> {
-    value
-        .get(name)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| format!("{name} is missing"))
 }
 fn text_value<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {
     value
@@ -63,16 +62,22 @@ fn controller_locked(
     Ok((guard, controller))
 }
 
-#[derive(Deserialize)]
-struct MacroEvent {
-    key: String,
-    action: String,
-    delay: u16,
+#[tauri::command]
+async fn api(
+    state: tauri::State<'_, Arc<AppState>>,
+    path: String,
+    body_value: Option<Value>,
+    bytes: Option<Vec<u8>>,
+    query: Option<HashMap<String, String>>,
+) -> Result<Value, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || handle_api(&state, path, body_value, bytes, query))
+        .await
+        .map_err(|error| format!("Keyboard operation failed: {error}"))?
 }
 
-#[tauri::command]
-fn api(
-    state: tauri::State<'_, AppState>,
+fn handle_api(
+    state: &AppState,
     path: String,
     body_value: Option<Value>,
     bytes: Option<Vec<u8>>,
@@ -89,11 +94,23 @@ fn api(
     if path == "/api/live-native-start" {
         let data = request_body(&body_value)?;
         let kind = text_value(data, "kind")?;
+        if !["screen", "audio"].contains(&kind) {
+            return Err(format!("Unknown live sync type: {kind}"));
+        }
+        let lighting = data
+            .get("lighting")
+            .cloned()
+            .map(serde_json::from_value::<LightingState>)
+            .transpose()
+            .map_err(|error| error.to_string())?;
+        if let Some(value) = &lighting {
+            value.validate()?;
+        }
         let mut session = state.live.lock().map_err(|_| "Live sync lock failed")?;
         session.take();
         *session = Some(match kind {
-            "screen" => live::start_screen(state.device.clone())?,
-            "audio" => live::start_audio(state.device.clone())?,
+            "screen" => live::start_screen(state.device.clone(), lighting)?,
+            "audio" => live::start_audio(state.device.clone(), lighting)?,
             _ => return Err(format!("Unknown live sync type: {kind}")),
         });
         return Ok(json!({"ok":true}));
@@ -124,40 +141,16 @@ fn api(
             Ok(json!({"ok":true,"status":controller.status()?}))
         }
         "/api/display" | "/api/display-frame" => {
-            state
-                .live
-                .lock()
-                .map_err(|_| "Live sync lock failed")?
-                .take();
-            let data = bytes.ok_or_else(|| "Image data is missing".to_string())?;
-            let query = query.unwrap_or_default();
-            let layer = query.get("layer").and_then(|v| v.parse().ok()).unwrap_or(0);
-            let animation = if path == "/api/display-frame" {
-                display::encode(vec![data], 100)?
-            } else {
-                let filename = query
-                    .get("filename")
-                    .map(String::as_str)
-                    .unwrap_or("image.png");
-                let delay = query.get("delay").and_then(|v| v.parse().ok());
-                display::decode(&data, filename, delay)?
-            };
+            let _upload = state
+                .upload
+                .try_lock()
+                .map_err(|_| "A display upload is already running")?;
             *state.progress.lock().map_err(|_| "Progress lock failed")? = Progress {
                 active: true,
                 value: 0.0,
-                label: "Uploading".into(),
+                label: "Preparing image".into(),
             };
-            let (_guard, controller) = controller_locked(&state)?;
-            let result =
-                display::upload(&controller.transport, &animation, layer, |value, label| {
-                    if let Ok(mut progress) = state.progress.lock() {
-                        *progress = Progress {
-                            active: value < 1.0,
-                            value,
-                            label,
-                        }
-                    }
-                });
+            let result = upload_display(state, &path, bytes, query);
             if result.is_err() {
                 *state.progress.lock().map_err(|_| "Progress lock failed")? = Progress {
                     active: false,
@@ -165,134 +158,88 @@ fn api(
                     label: "Upload failed".into(),
                 };
             }
-            result?;
-            Ok(
-                json!({"ok":true,"frames":animation.frames.len(),"delay":animation.delay,"bounds":animation.bounds}),
-            )
+            result
         }
         _ => {
-            let data = request_body(&body_value)?;
-            if path == "/api/rgb" {
+            let request = requests::WriteRequest::parse(&path, body_value)?;
+            if matches!(request, requests::WriteRequest::Lighting(_)) {
                 state
                     .live
                     .lock()
                     .map_err(|_| "Live sync lock failed")?
                     .take();
             }
-            let (_guard, controller) = controller_locked(&state)?;
-            match path.as_str() {
-                "/api/rgb" => controller.set_lighting(
-                    &serde_json::from_value::<LightingState>(data.clone())
-                        .map_err(|error| error.to_string())?,
-                )?,
-                "/api/profile" => controller.set_profile(number(data, "profile")? as u8)?,
-                "/api/rate" => {
-                    let hz = number(data, "hz")? as u16;
-                    let profile = number(data, "profile")? as u8;
-                    controller.set_report_rate(hz, profile)?;
-                    let actual = controller.get_report_rate(profile)?;
-                    if actual != hz {
-                        return Err(format!(
-                            "Keyboard reported {actual} Hz after requesting {hz} Hz"
-                        ));
-                    }
-                }
-                "/api/debounce" => controller.set_debounce(number(data, "milliseconds")? as u8)?,
-                "/api/options" => {
-                    let profile = number(data, "profile")? as u8;
-                    let options: KeyboardOptions =
-                        serde_json::from_value(data.clone()).map_err(|error| error.to_string())?;
-                    controller.set_options(&options, profile)?
-                }
-                "/api/sleep" => controller.set_sleep([
-                    (number(data, "bluetooth")? * 60) as u16,
-                    (number(data, "wireless")? * 60) as u16,
-                    (number(data, "bluetooth_deep")? * 60) as u16,
-                    (number(data, "wireless_deep")? * 60) as u16,
-                ])?,
-                "/api/clock" => controller.set_clock()?,
-                "/api/remap" => {
-                    let modifier = match data
-                        .get("modifier")
-                        .and_then(Value::as_str)
-                        .unwrap_or("none")
-                    {
-                        "ctrl" => 224,
-                        "shift" => 225,
-                        "alt" => 226,
-                        "meta" => 227,
-                        _ => 0,
-                    };
-                    let source = keys::parse_key(text_value(data, "source")?)?;
-                    let target = keys::parse_target(
-                        data.get("target")
-                            .and_then(Value::as_str)
-                            .unwrap_or("disabled"),
-                        modifier,
-                        number(data, "second_usage").unwrap_or(0) as u8,
-                    )?;
-                    let profile = number(data, "profile")? as u8;
-                    let layer = data
-                        .get("fn_layer")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as u8);
-                    controller.set_key_payload(source, target, profile, layer)?
-                }
-                "/api/key-color" => controller.set_key_color(
-                    keys::parse_key(text_value(data, "key")?)?,
-                    text_value(data, "color")?,
-                    number(data, "slot")? as u8,
-                )?,
-                "/api/live-screen" => {
-                    let rgba = data
-                        .get("rgba")
-                        .and_then(Value::as_array)
-                        .ok_or("RGBA values missing")?
-                        .iter()
-                        .map(|v| v.as_u64().unwrap_or(0) as u8)
-                        .collect::<Vec<_>>();
-                    controller.screen_color(&rgba)?
-                }
-                "/api/live-audio" => {
-                    let levels = data
-                        .get("levels")
-                        .and_then(Value::as_array)
-                        .ok_or("Audio levels missing")?
-                        .iter()
-                        .map(|v| v.as_u64().unwrap_or(0) as u8)
-                        .collect::<Vec<_>>();
-                    controller.music(&levels)?
-                }
-                "/api/macro" => {
-                    let events: Vec<MacroEvent> = serde_json::from_value(
-                        data.get("events").cloned().ok_or("Events missing")?,
-                    )
-                    .map_err(|error| error.to_string())?;
-                    let encoded = events
-                        .into_iter()
-                        .map(|event| {
-                            Ok((
-                                keys::parse_key(&event.key)?,
-                                event.action == "down",
-                                event.delay,
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, String>>()?;
-                    controller.macro_assign(
-                        keys::parse_key(text_value(data, "source")?)?,
-                        &encoded,
-                        number(data, "index")? as u8,
-                        number(data, "repeat_count")? as u16,
-                        text_value(data, "mode")?,
-                        number(data, "profile")? as u8,
-                    )?
-                }
-                "/api/reset" => controller.reset()?,
-                _ => return Err(format!("Unknown API: {path}")),
-            }
+            let (_guard, controller) = controller_locked(state)?;
+            request.execute(&controller)?;
             Ok(json!({"ok":true}))
         }
     }
+}
+
+fn upload_display(
+    state: &AppState,
+    path: &str,
+    bytes: Option<Vec<u8>>,
+    query: Option<HashMap<String, String>>,
+) -> Result<Value, String> {
+    let data = bytes.ok_or_else(|| "Image data is missing".to_string())?;
+    let query = query.unwrap_or_default();
+    let layer = query
+        .get("layer")
+        .map(|value| value.parse::<u8>())
+        .transpose()
+        .map_err(|_| "Invalid display slot")?
+        .unwrap_or(0);
+    if layer > 4 {
+        return Err("Display slot must be 1..5".into());
+    }
+    if query.get("single").is_some_and(|value| value == "true") {
+        return Err("This window uses an old display mode. Restart the application to upload GIFs and individual slots.".into());
+    }
+    let animation = if path == "/api/display-frame" {
+        display::encode(vec![data], 100)?
+    } else {
+        let filename = query
+            .get("filename")
+            .map(String::as_str)
+            .unwrap_or("image.png");
+        let delay = query
+            .get("delay")
+            .map(|value| value.parse::<u8>())
+            .transpose()
+            .map_err(|_| "GIF delay must be 1..255 ms")?;
+        if delay == Some(0) {
+            return Err("GIF delay must be 1..255 ms".into());
+        }
+        display::decode(&data, filename, delay)?
+    };
+    state
+        .live
+        .lock()
+        .map_err(|_| "Live sync lock failed")?
+        .take();
+    *state.progress.lock().map_err(|_| "Progress lock failed")? = Progress {
+        active: true,
+        value: 0.0,
+        label: "Uploading".into(),
+    };
+    let result = (|| {
+        let (_guard, controller) = controller_locked(state)?;
+        let progress = |value, label| {
+            if let Ok(mut progress) = state.progress.lock() {
+                *progress = Progress {
+                    active: value < 1.0,
+                    value,
+                    label,
+                }
+            }
+        };
+        display::upload(&controller.transport, &animation, layer, progress)
+    })();
+    result?;
+    Ok(
+        json!({"ok":true,"frames":animation.frames.len(),"delay":animation.delay,"bounds":animation.bounds}),
+    )
 }
 
 #[tauri::command]
@@ -339,14 +286,15 @@ pub fn run() {
         }
     }
     tauri::Builder::default()
-        .manage(AppState {
+        .manage(Arc::new(AppState {
             device: Arc::new(Mutex::new(())),
             progress: Mutex::new(Progress::default()),
             live: Mutex::new(None),
-        })
-        .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "linux")]
+            upload: Mutex::new(()),
+        }))
+        .setup(|_app| {
+            #[cfg(target_os = "linux")]
+            if let Some(window) = _app.get_webview_window("main") {
                 window.with_webview(|webview| {
                     use webkit2gtk::{
                         glib::prelude::ObjectExt, PermissionRequestExt, UserMediaPermissionRequest,
@@ -373,6 +321,27 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::{thread, time::Duration};
+
+    #[test]
+    fn failed_image_preparation_clears_progress() {
+        let state = AppState {
+            device: Arc::new(Mutex::new(())),
+            progress: Mutex::new(Progress::default()),
+            live: Mutex::new(None),
+            upload: Mutex::new(()),
+        };
+        let result = handle_api(
+            &state,
+            "/api/display".into(),
+            None,
+            Some(vec![0, 1, 2]),
+            None,
+        );
+        assert!(result.is_err());
+        let progress = state.progress.lock().unwrap();
+        assert!(!progress.active);
+        assert_eq!(progress.label, "Upload failed");
+    }
     #[test]
     fn named_targets_are_stable() {
         assert_eq!(
@@ -405,10 +374,10 @@ mod tests {
         drop(controller);
         let live_result = (|| -> Result<(), String> {
             let lock = Arc::new(Mutex::new(()));
-            let screen = live::start_screen(lock.clone())?;
+            let screen = live::start_screen(lock.clone(), None)?;
             thread::sleep(Duration::from_millis(350));
             drop(screen);
-            let audio = live::start_audio(lock)?;
+            let audio = live::start_audio(lock, None)?;
             thread::sleep(Duration::from_millis(350));
             drop(audio);
             Ok(())
