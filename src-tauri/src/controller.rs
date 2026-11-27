@@ -32,6 +32,11 @@ pub struct KeyboardOptions {
     pub keyboard_lock: bool,
     pub fn_remap: bool,
     pub power_save: bool,
+    /// Firmware OS auto-detection (commands 0x17 / 0x97).
+    pub auto_os: bool,
+    /// Bits of the option byte this app does not edit; preserved on save.
+    #[serde(skip)]
+    pub reserved_bits: u8,
 }
 
 #[derive(Serialize)]
@@ -87,6 +92,11 @@ const EFFECTS: &[(&str, u8)] = &[
     ("user_color", 66),
 ];
 
+/// Vendor K8 (`oP`) COMMONCOLOR table, indexed by the color-mode nibble.
+const PRESET_COLORS: [u32; 7] = [
+    0xff0000, 0xff8000, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff,
+];
+
 fn effect_id(name: &str) -> Option<u8> {
     EFFECTS
         .iter()
@@ -124,8 +134,10 @@ fn lighting_report(value: &LightingState) -> Result<[u8; 64], String> {
     let mut command = [0u8; 64];
     command[0] = 7;
     command[1] = id;
-    command[2] = 4 - value.speed;
-    command[3] = value.brightness;
+    let screen = value.effect == "screen_color";
+    // The vendor driver always sends screen sync with speed 0 and full brightness.
+    command[2] = if screen { 4 } else { 4 - value.speed };
+    command[3] = if screen { 4 } else { value.brightness };
     // K8 firmware calls 0x08 "dazzle" (automatic rainbow) and 0x07
     // "normal" (the RGB bytes below). Reversing these makes chosen colors
     // appear to have no effect.
@@ -143,6 +155,8 @@ fn lighting_report(value: &LightingState) -> Result<[u8; 64], String> {
         (value.slot - 1) << 4
     } else if matches!(value.effect.as_str(), "music_2" | "music_3") {
         (direction << 4) | if value.rainbow { 0 } else { 4 }
+    } else if screen {
+        7
     } else {
         color_mode
     };
@@ -199,6 +213,13 @@ impl Controller {
         let mut color = ((r[5] as u32) << 16) | ((r[6] as u32) << 8) | r[7] as u32;
         if color == 0xfafffa {
             color = 0xffffff
+        }
+        // Colors chosen with the keyboard's Fn shortcuts are stored as a
+        // preset index (0..6) in the low nibble; the RGB bytes are then stale.
+        if !matches!(effect.as_str(), "music_2" | "music_3") {
+            if let Some(preset) = PRESET_COLORS.get((option & 15) as usize) {
+                color = *preset;
+            }
         }
         Ok(LightingState {
             effect: effect.clone(),
@@ -270,9 +291,11 @@ impl Controller {
             .transport
             .query(&[0x86, p], Some(7), Duration::from_millis(50), 0x86)?;
         let f = r[2];
+        // The vendor K8 driver reads macOS mode from bit 1 (0x02). Bit 2 is
+        // not documented, so it is kept untouched rather than reused.
         Ok(KeyboardOptions {
             win_lock: f & 1 != 0,
-            mac_mode: f & 4 != 0,
+            mac_mode: f & 2 != 0,
             swap_wasd_arrows: f & 8 != 0,
             led_off: f & 16 != 0,
             side_led_off: f & 32 != 0,
@@ -280,14 +303,26 @@ impl Controller {
             keyboard_lock: f & 128 != 0,
             fn_remap: r[3] & 1 != 0,
             power_save: r[4] != 0,
+            auto_os: self.get_auto_os()?,
+            reserved_bits: f & 4,
         })
+    }
+    pub fn get_auto_os(&self) -> Result<bool, String> {
+        Ok(self
+            .transport
+            .query(&[0x97], Some(7), Duration::from_millis(50), 0x97)?[1]
+            != 0)
+    }
+    pub fn set_auto_os(&self, enabled: bool) -> Result<(), String> {
+        self.transport.send(&[0x17, enabled as u8], Some(7))
     }
     pub fn set_options(&self, o: &KeyboardOptions, p: u8) -> Result<(), String> {
         if p > 2 {
             return Err("Profile must be 0..2".into());
         }
-        let f = o.win_lock as u8
-            | (o.mac_mode as u8) << 2
+        let f = (o.reserved_bits & 4)
+            | o.win_lock as u8
+            | (o.mac_mode as u8) << 1
             | (o.swap_wasd_arrows as u8) << 3
             | (o.led_off as u8) << 4
             | (o.side_led_off as u8) << 5
@@ -295,7 +330,8 @@ impl Controller {
             | (o.keyboard_lock as u8) << 7;
         let mut c = [0u8; 64];
         c[..5].copy_from_slice(&[6, p, f, o.fn_remap as u8, o.power_save as u8]);
-        self.transport.send(&c, Some(7))
+        self.transport.send(&c, Some(7))?;
+        self.set_auto_os(o.auto_os)
     }
     pub fn get_sleep(&self) -> Result<SleepTimes, String> {
         let r = self
@@ -500,5 +536,14 @@ mod tests {
         let mut custom = lighting("user_picture");
         custom.slot = 4;
         assert_eq!(lighting_report(&custom).unwrap()[4], 0x30);
+    }
+
+    #[test]
+    fn screen_color_uses_vendor_fixed_parameters() {
+        let mut screen = lighting("screen_color");
+        screen.brightness = 1;
+        screen.speed = 0;
+        screen.rainbow = true;
+        assert_eq!(&lighting_report(&screen).unwrap()[..5], &[7, 21, 4, 4, 7]);
     }
 }

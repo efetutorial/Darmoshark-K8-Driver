@@ -126,13 +126,16 @@ impl WriteRequest {
                 bluetooth_deep,
                 wireless_deep,
             } => {
+                // 0 disables a timer, as in the vendor driver.
+                let deep_ok = |value: &u16| *value == 0 || (10..=60).contains(value);
                 if *bluetooth > 60
                     || *wireless > 60
-                    || !(10..=60).contains(bluetooth_deep)
-                    || !(10..=60).contains(wireless_deep)
+                    || !deep_ok(bluetooth_deep)
+                    || !deep_ok(wireless_deep)
                 {
                     return Err(
-                        "Sleep must be 0..60 minutes; deep sleep must be 10..60 minutes".into(),
+                        "Sleep must be 0..60 minutes; deep sleep must be 0 or 10..60 minutes"
+                            .into(),
                     );
                 }
             }
@@ -191,8 +194,10 @@ impl WriteRequest {
                 profile,
                 mut options,
             } => {
-                // This flag has no editor. Preserve it instead of clearing it on every save.
-                options.keyboard_lock = controller.get_options(profile)?.keyboard_lock;
+                // These bits have no editor. Preserve them instead of clearing them on every save.
+                let current = controller.get_options(profile)?;
+                options.keyboard_lock = current.keyboard_lock;
+                options.reserved_bits = current.reserved_bits;
                 controller.set_options(&options, profile)
             }
             Self::Sleep {

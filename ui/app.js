@@ -11,12 +11,15 @@ const EFFECTS = {
   screen_color: "Screen color", music_2: "Audio bars"
 };
 
+// Modes the firmware can report (e.g. via Fn shortcuts) but the vendor K8 UI does not offer.
+const DEVICE_ONLY_EFFECTS = {train: "Train", fireworks: "Fireworks", user_color: "User color"};
+
 const KEYBOARD_LAYOUT = [
-  [{n:"Esc"},{gap:.55},{n:"F1"},{n:"F2"},{n:"F3"},{n:"F4"},{gap:.25},{n:"F5"},{n:"F6"},{n:"F7"},{n:"F8"},{gap:.25},{n:"F9"},{n:"F10"},{n:"F11"},{n:"F12"},{n:"PrintScreen",l:"Prt"},{n:"Delete",l:"Del"}],
+  [{n:"Esc"},{gap:.55},{n:"F1"},{n:"F2"},{n:"F3"},{n:"F4"},{gap:.25},{n:"F5"},{n:"F6"},{n:"F7"},{n:"F8"},{gap:.25},{n:"F9"},{n:"F10"},{n:"F11"},{n:"F12"},{n:"Delete",l:"Del"},{n:null,l:"LCD"}],
   [{n:"Grave",l:"`"},{n:"1"},{n:"2"},{n:"3"},{n:"4"},{n:"5"},{n:"6"},{n:"7"},{n:"8"},{n:"9"},{n:"0"},{n:"Minus",l:"−"},{n:"Equal",l:"="},{n:"Backspace",l:"Back",w:2},{n:"Home",l:"Home"}],
   [{n:"Tab",w:1.5},{n:"Q"},{n:"W"},{n:"E"},{n:"R"},{n:"T"},{n:"Y"},{n:"U"},{n:"I"},{n:"O"},{n:"P"},{n:"LeftBracket",l:"["},{n:"RightBracket",l:"]"},{n:"Backslash",l:"\\",w:1.5},{n:"PageUp",l:"Pg↑"}],
   [{n:"CapsLock",l:"Caps",w:1.8},{n:"A"},{n:"S"},{n:"D"},{n:"F"},{n:"G"},{n:"H"},{n:"J"},{n:"K"},{n:"L"},{n:"Semicolon",l:";"},{n:"Quote",l:"'"},{n:"Enter",l:"Enter",w:2.2},{n:"PageDown",l:"Pg↓"}],
-  [{n:"LeftShift",l:"Shift",w:1.4},{n:"NonUSBackslash",l:"<"},{n:"Z"},{n:"X"},{n:"C"},{n:"V"},{n:"B"},{n:"N"},{n:"M"},{n:"Comma",l:","},{n:"Period",l:"."},{n:"Slash",l:"/"},{n:"RightShift",l:"Shift",w:1.5},{n:"Up",l:"↑"},{n:"End",l:"End"}],
+  [{n:"LeftShift",l:"Shift",w:1.4},{n:"NonUSBackslash",l:"<"},{n:"Z"},{n:"X"},{n:"C"},{n:"V"},{n:"B"},{n:"N"},{n:"M"},{n:"Comma",l:","},{n:"Period",l:"."},{n:"Slash",l:"/"},{n:"RightShift",l:"Shift",w:1.5},{n:"Up",l:"↑"},{n:null,l:"◆"}],
   [{n:"LeftCtrl",l:"Ctrl",w:1.3},{n:"LeftMeta",l:"Meta",w:1.2},{n:"LeftAlt",l:"Alt",w:1.2},{n:"Space",l:"",w:5.8},{n:"RightAlt",l:"Alt",w:1.2},{n:null,l:"Fn",w:1.1},{n:"RightCtrl",l:"Ctrl",w:1.1},{n:"Left",l:"←"},{n:"Down",l:"↓"},{n:"Right",l:"→"}]
 ];
 
@@ -222,12 +225,25 @@ async function refreshStatus(silent = false, force = true) {
   }
 }
 
+// Never leave the selector on a stale mode: add the keyboard's current mode if it is not listed.
+function showDeviceEffect(effect) {
+  const select = $("#effect");
+  $$("option.device-effect", select).forEach(option => option.remove());
+  if (!Object.hasOwn(EFFECTS, effect)) {
+    const option = document.createElement("option");
+    option.value = effect; option.className = "device-effect";
+    option.textContent = DEVICE_ONLY_EFFECTS[effect] ? `${DEVICE_ONLY_EFFECTS[effect]} (set on keyboard)` : `Unsupported mode (${effect})`;
+    select.append(option);
+  }
+  select.value = effect;
+}
+
 function applyStatus(status, force = true) {
   if (force) state.dirtyPages.clear();
   $$(".profile-switch button").forEach(button => button.classList.toggle("active", +button.dataset.profile === status.profile));
 
   if (force || !state.dirtyPages.has("lighting")) {
-    if ([...$("#effect").options].some(option => option.value === status.lighting.effect)) $("#effect").value = status.lighting.effect;
+    showDeviceEffect(status.lighting.effect);
     setColor(status.lighting.color);
     $("#brightness").value = status.lighting.brightness;
     $("#speed").value = status.lighting.speed;
@@ -282,6 +298,8 @@ const EFFECT_CAPABILITIES = {
   kaleidoscope: {directions:["Outward", "Inward"]},
   line_wave: {directions:["Right", "Left"]},
   circle_wave: {directions:["Counterclockwise", "Clockwise"]},
+  fireworks: {directions:["Right", "Left"]},
+  user_color: {},
   music_2: {color:true, rainbow:true, brightness:true, directions:["Upright", "Separate", "Intersect"], note:"Start Audio spectrum below to sync your audio."},
   music_3: {color:true, rainbow:true, brightness:true, directions:["Upright", "Separate", "Intersect"], note:"Start Audio spectrum below to sync your audio."}
 };
@@ -290,7 +308,7 @@ function effectCapabilities() {
   const effect = $("#effect").value;
   const animated = {color:true, rainbow:true, brightness:true, speed:true};
   const caps = EFFECT_CAPABILITIES[effect];
-  if (["wave", "snake", "kaleidoscope", "line_wave", "circle_wave"].includes(effect)) return {...animated, ...caps};
+  if (["wave", "snake", "kaleidoscope", "line_wave", "circle_wave", "fireworks"].includes(effect)) return {...animated, ...caps};
   return caps || animated;
 }
 

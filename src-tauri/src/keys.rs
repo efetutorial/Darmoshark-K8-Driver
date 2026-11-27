@@ -88,6 +88,18 @@ pub fn target_names() -> Vec<String> {
         "system:brightness-up",
         "system:refresh",
         "system:lock",
+        "system:back",
+        "system:mic-toggle",
+        "system:zoom-in",
+        "system:zoom-out",
+        "keyboard:fn",
+        "keyboard:fn-lock",
+        "profile:next",
+        "profile:previous",
+        "profile:cycle",
+        "profile:1",
+        "profile:2",
+        "profile:3",
         "mouse:left",
         "mouse:right",
         "mouse:middle",
@@ -95,6 +107,8 @@ pub fn target_names() -> Vec<String> {
         "mouse:back",
         "mouse:wheel-left",
         "mouse:wheel-right",
+        "mouse:wheel-forward",
+        "mouse:wheel-back",
         "mouse:scroll-up",
         "mouse:scroll-down",
     ]
@@ -129,8 +143,23 @@ pub fn parse_target(value: &str, modifier: u8, second: u8) -> Result<[u8; 4], St
         "mouse:left" => [1, 0, 240, 0],
         "mouse:right" => [1, 0, 241, 0],
         "mouse:middle" => [1, 0, 242, 0],
-        "mouse:forward" => [1, 0, 243, 0],
-        "mouse:back" => [1, 0, 244, 0],
+        // Vendor mapping: forward is mouse button 5, back is button 4.
+        "mouse:forward" => [1, 0, 244, 0],
+        "mouse:back" => [1, 0, 243, 0],
+        "mouse:wheel-forward" => [1, 0, 247, 0],
+        "mouse:wheel-back" => [1, 0, 248, 0],
+        "system:mic-toggle" => [6, 128, 0, 0],
+        "system:zoom-out" => [0, 0, 227, 45],
+        "system:zoom-in" => [0, 0, 227, 46],
+        "system:back" => [3, 0, 36, 2],
+        "keyboard:fn" => [10, 1, 1, 0],
+        "keyboard:fn-lock" => [10, 13, 0, 0],
+        "profile:next" => [8, 0, 1, 0],
+        "profile:previous" => [8, 0, 2, 0],
+        "profile:cycle" => [8, 0, 3, 0],
+        "profile:1" => [8, 0, 4, 0],
+        "profile:2" => [8, 0, 4, 1],
+        "profile:3" => [8, 0, 4, 2],
         "mouse:wheel-left" => [1, 0, 245, 0],
         "mouse:wheel-right" => [1, 0, 246, 0],
         "mouse:scroll-up" => [1, 0, 245, 1],
@@ -229,4 +258,22 @@ pub fn matrix_index(usage: u8) -> Result<u8, String> {
         .iter()
         .find_map(|(index, value)| (*value == usage).then_some(*index))
         .ok_or_else(|| format!("HID usage {usage} is not present on the K8"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_side_buttons_match_vendor_mapping() {
+        assert_eq!(parse_target("mouse:forward", 0, 0).unwrap(), [1, 0, 244, 0]);
+        assert_eq!(parse_target("mouse:back", 0, 0).unwrap(), [1, 0, 243, 0]);
+    }
+
+    #[test]
+    fn every_listed_target_encodes() {
+        for name in target_names() {
+            assert!(parse_target(&name, 0, 0).is_ok(), "{name}");
+        }
+    }
 }
