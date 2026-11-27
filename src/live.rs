@@ -60,5 +60,16 @@ pub(super) fn audio_levels(raw: &[u8], planner: &mut FftPlanner<f32>) -> [u8; 32
             .sqrt();
     }
     let peak = energy.iter().copied().fold(0.0001, f32::max);
-    energy.map(|value| ((value / peak).sqrt() * 6.0).round().clamp(0.0, 6.0) as u8)
+    let levels = energy.map(|value| ((value / peak).sqrt() * 6.0).round().clamp(0.0, 6.0) as u8);
+    if let Ok(mut latest) = LEVELS.lock() {
+        *latest = levels;
+    }
+    levels
+}
+
+/// The most recent audio spectrum sent to the keyboard, for the UI visualizer.
+pub static LEVELS: Mutex<[u8; 32]> = Mutex::new([0; 32]);
+
+pub fn latest_levels() -> [u8; 32] {
+    LEVELS.lock().map(|levels| *levels).unwrap_or([0; 32])
 }

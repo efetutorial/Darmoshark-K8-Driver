@@ -6,7 +6,7 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/@GITHUB_REPOSITORY@'
 _repo='@REPOSITORY_NAME@'
 license=('MIT')
-depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'libsoup3')
+depends=('vulkan-icd-loader' 'wayland' 'libxkbcommon' 'libxkbcommon-x11' 'libx11' 'libxcb' 'fontconfig' 'freetype2')
 optdepends=('grim: screen capture on Wayland' 'pipewire: live audio visualization')
 makedepends=('cargo' 'rust')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
@@ -14,21 +14,19 @@ sha256sums=('@SHA256@')
 
 build() {
   cd "$_repo-$pkgver"
-  cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+  cargo build --release --locked
 }
 
 check() {
   cd "$_repo-$pkgver"
-  cargo test --locked --manifest-path src-tauri/Cargo.toml
+  cargo test --locked
 }
 
 package() {
   cd "$_repo-$pkgver"
-  install -Dm755 src-tauri/target/release/darmoshark-k8-studio \
+  install -Dm755 target/release/darmoshark-k8-studio \
     "$pkgdir/usr/bin/darmoshark-k8-studio"
   install -Dm644 packaging/darmoshark-k8.desktop \
-    "$pkgdir/usr/share/applications/darmoshark-k8.desktop"
-  sed -i 's|@EXEC@|darmoshark-k8-studio|' \
     "$pkgdir/usr/share/applications/darmoshark-k8.desktop"
   install -Dm644 packaging/darmoshark-k8.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/darmoshark-k8.svg"

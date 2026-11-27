@@ -1,5 +1,5 @@
 {
-  description = "Darmoshark K8 Studio — native Linux keyboard control application";
+  description = "Darmoshark K8 Studio — native keyboard control application";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -9,51 +9,57 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
       packages = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system};
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          runtimeLibs = with pkgs; [
+            fontconfig
+            freetype
+            libxkbcommon
+            vulkan-loader
+            wayland
+            libx11
+            libxcb
+            libxcursor
+            libxi
+            libxrandr
+          ];
         in {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "darmoshark-k8-studio";
-            version = "1.0.0";
+            version = "2.0.0";
             src = nixpkgs.lib.cleanSourceWith {
               src = ./.;
               filter = path: type:
                 let
                   relative = nixpkgs.lib.removePrefix (toString ./. + "/") (toString path);
                 in
-                  !(nixpkgs.lib.hasPrefix "src-tauri/target" relative
+                  !(nixpkgs.lib.hasPrefix "target" relative
                     || nixpkgs.lib.hasPrefix "dist" relative
                     || relative == "result");
             };
-            cargoRoot = "src-tauri";
-            buildAndTestSubdir = "src-tauri";
-            cargoLock.lockFile = ./src-tauri/Cargo.lock;
+            cargoLock.lockFile = ./Cargo.lock;
 
             nativeBuildInputs = with pkgs; [
               pkg-config
-              wrapGAppsHook3
+              makeWrapper
             ];
-            buildInputs = with pkgs; [
-              glib
-              gtk3
-              libsoup_3
-              webkitgtk_4_1
-            ];
+            buildInputs = runtimeLibs;
 
             postInstall = ''
               install -Dm644 ${./packaging/darmoshark-k8.desktop} \
                 $out/share/applications/darmoshark-k8.desktop
-              substituteInPlace $out/share/applications/darmoshark-k8.desktop \
-                --replace-fail '@EXEC@' 'darmoshark-k8-studio'
               install -Dm644 ${./packaging/darmoshark-k8.svg} \
                 $out/share/icons/hicolor/scalable/apps/darmoshark-k8.svg
               install -Dm644 ${./packaging/99-darmoshark-k8.rules} \
                 $out/lib/udev/rules.d/99-darmoshark-k8.rules
             '';
 
-            preFixup = ''
-              gappsWrapperArgs+=(
+            # GPUI loads Vulkan, Wayland and X11 libraries at runtime.
+            postFixup = ''
+              patchelf --add-rpath ${pkgs.lib.makeLibraryPath runtimeLibs} \
+                $out/bin/darmoshark-k8-studio
+              wrapProgram $out/bin/darmoshark-k8-studio \
                 --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.grim pkgs.pipewire ]}
-              )
             '';
 
             meta = {
@@ -85,21 +91,15 @@
 
       devShells = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system};
+            libs = with pkgs; [
+              fontconfig freetype libxkbcommon vulkan-loader wayland
+              libx11 libxcb libxcursor libxi libxrandr
+            ];
         in {
           default = pkgs.mkShell {
-            packages = with pkgs; [
-              cargo
-              cargo-tauri
-              rustc
-              rustfmt
-              pkg-config
-              gtk3
-              glib
-              libsoup_3
-              webkitgtk_4_1
-              grim
-              pipewire
-            ];
+            packages = with pkgs; [ cargo rustc rustfmt pkg-config grim pipewire ];
+            buildInputs = libs;
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
           };
         });
     };

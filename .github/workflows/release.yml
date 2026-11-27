@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 
+env:
+  LINUX_DEPS: >-
+    build-essential pkg-config libxkbcommon-dev libxkbcommon-x11-dev
+    libwayland-dev libvulkan-dev libx11-dev libx11-xcb-dev libxcb1-dev
+    libfontconfig1-dev libfreetype-dev
+
 jobs:
   windows-packages:
     runs-on: windows-latest
@@ -14,54 +20,44 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - name: Test Windows core
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Build Windows installer
-        uses: tauri-apps/tauri-action@v1
-        with:
-          projectPath: src-tauri
-          args: --bundles nsis -- --locked
-      - name: Prepare standalone executable
+      - name: Test
+        run: cargo test --locked
+      - name: Build
+        run: cargo build --release --locked
+      - name: Prepare executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item src-tauri/target/release/darmoshark-k8-studio.exe dist/darmoshark-k8-studio-windows-x86_64.exe
+          Copy-Item target/release/darmoshark-k8-studio.exe dist/darmoshark-k8-studio-windows-x86_64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows-packages
-          path: |
-            dist/*.exe
-            src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: dist/*.exe
           if-no-files-found: error
 
   linux-packages:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Install Linux packaging dependencies
+      - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev \
-            libsoup-3.0-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 rpm
+          sudo apt-get install -y $LINUX_DEPS
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - name: Test Linux core and formatting
+      - name: Test and check formatting
         run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-          cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Build Debian, RPM and AppImage packages
-        uses: tauri-apps/tauri-action@v1
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: '1'
-        with:
-          projectPath: src-tauri
-          args: --bundles deb,rpm,appimage -- --locked
+          cargo fmt -- --check
+          cargo test --locked
+      - name: Build
+        run: cargo build --release --locked
+      - name: Build Debian and RPM packages
+        run: |
+          cargo install --locked cargo-deb cargo-generate-rpm
+          cargo deb --no-build --no-strip
+          cargo generate-rpm
       - name: Prepare release files and Arch PKGBUILD
         env:
           VERSION: ${{ github.ref_name }}
@@ -78,32 +74,18 @@ jobs:
               -e "s|@SHA256@|$checksum|g" \
               packaging/arch/PKGBUILD.in > dist/PKGBUILD
           cp packaging/99-darmoshark-k8.rules dist/
-          cp src-tauri/target/release/bundle/deb/*.deb dist/
-          cp src-tauri/target/release/bundle/rpm/*.rpm dist/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
+          cp target/debian/*.deb dist/
+          cp target/generate-rpm/*.rpm dist/
           tar -czf "dist/darmoshark-k8-studio_${version}_linux_x86_64.tar.gz" \
-            -C src-tauri/target/release darmoshark-k8-studio
+            -C target/release darmoshark-k8-studio
       - uses: actions/upload-artifact@v4
         with:
           name: linux-packages
           path: dist/*
           if-no-files-found: error
 
-  frontend:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run check
-      - run: npm test
-
   publish:
-    needs: [windows-packages, linux-packages, frontend]
+    needs: [windows-packages, linux-packages]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -4,11 +4,11 @@ This driver was written entirely by ai, and it works better than the official on
 
 
 Linux and Windows control application for the Darmoshark K8 keyboard, built with Rust and
-Tauri.
+[GPUI](https://gpui.rs). The interface is drawn natively on the GPU; there is no web view.
 
 ![Linux](https://img.shields.io/badge/platform-Linux-blue)
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
-![Rust](https://img.shields.io/badge/backend-Rust-orange)
+![Rust](https://img.shields.io/badge/built%20with-Rust%20%2B%20GPUI-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
@@ -16,7 +16,7 @@ Tauri.
 - Onboard profile management
 - RGB effects, brightness, speed, direction and supported color controls
 - Per-key color and key remapping
-- Hardware macro editing
+- Hardware macro editing; on Linux, recording reads the K8 directly and works with any keyboard layout
 - 125, 250, 500 and 1000 Hz report-rate settings
 - Debounce, sleep, battery and firmware information
 - 128×128 LCD image and GIF upload
@@ -39,29 +39,24 @@ Download a package from the
 | --- | --- |
 | Debian, Ubuntu, Linux Mint, Pop!_OS | `.deb` |
 | Fedora, openSUSE, RHEL derivatives | `.rpm` |
-| Other glibc-based distributions | `.AppImage` |
+| Other glibc-based distributions | `_linux_x86_64.tar.gz` |
 | Arch Linux and derivatives | `PKGBUILD` |
-| Windows 10 / 11 (x64) | `-setup.exe` |
+| Windows 10 / 11 (x64) | `-windows-x86_64.exe` |
 
 ### Windows
 
-Run the `-setup.exe` installer. It installs for the current user and downloads
-Microsoft Edge WebView2 Runtime if it is missing. No udev rule, Zadig, or custom
-USB driver is needed. Connect the K8 by USB and switch it to wired mode. Close
-the manufacturer's driver before opening Studio to avoid competing writes.
+Download the `.exe` and run it; no installation or runtime is needed. No udev
+rule, Zadig, or custom USB driver is needed. Connect the K8 by USB and switch it
+to wired mode. Close the manufacturer's driver before opening Studio to avoid
+competing writes.
 
 Windows builds use the native HID API for keyboard control, GDI for primary
 screen-color sync, and WASAPI loopback for the default playback device's audio
-spectrum. They do not need `grim` or PipeWire.
-
-The CI workflow builds a `darmoshark-k8-windows-x64` artifact containing the
-installer and standalone executable. The standalone executable requires an
-existing WebView2 Runtime. Tagged releases also attach the installer to the
-release. Windows hardware behavior still needs validation on a Windows PC.
+spectrum. Windows hardware behavior still needs validation on a Windows PC.
 
 ### Linux
 
-The Debian and RPM packages install the keyboard udev rule. AppImage users must
+The Debian and RPM packages install the keyboard udev rule. Tarball users must
 install it separately:
 
 ```console
@@ -102,79 +97,59 @@ The included NixOS module installs both the application and its udev rule:
 
 ## Building from source
 
+Install stable Rust. Linux needs a working Vulkan driver at runtime.
+
 ### Windows
 
-Install stable Rust with the MSVC toolchain, Visual Studio Build Tools with
-**Desktop development with C++** and a Windows SDK, and Microsoft Edge WebView2
-Runtime. Then run in PowerShell:
+Install the MSVC toolchain (Visual Studio Build Tools with **Desktop
+development with C++** and a Windows SDK), then run in PowerShell:
 
 ```powershell
-cargo install tauri-cli --version '^2' --locked
 git clone https://github.com/efetutorial/Darmoshark-K8-Driver.git
-cd Darmoshark-K8-Driver/src-tauri
+cd Darmoshark-K8-Driver
 cargo test --locked
-cargo tauri build --bundles nsis -- --locked
+cargo build --release --locked
 ```
 
-The installer is written to `src-tauri/target/release/bundle/nsis/` and the
-executable to `src-tauri/target/release/darmoshark-k8-studio.exe`.
-`tauri.windows.conf.json` is merged automatically when targeting Windows.
+The executable is written to `target/release/darmoshark-k8-studio.exe`.
 
 ### Linux
-
-Install stable Rust and the Linux libraries required by Tauri 2.
 
 Debian and Ubuntu:
 
 ```console
-sudo apt update
-sudo apt install build-essential curl file libappindicator3-dev libgtk-3-dev \
-  librsvg2-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev patchelf
+sudo apt install build-essential pkg-config libxkbcommon-dev libxkbcommon-x11-dev \
+  libwayland-dev libvulkan-dev libx11-dev libx11-xcb-dev libxcb1-dev \
+  libfontconfig1-dev libfreetype-dev
 ```
 
 Fedora:
 
 ```console
-sudo dnf install cargo rust gcc-c++ gtk3-devel libappindicator-gtk3-devel \
-  librsvg2-devel libsoup3-devel openssl-devel webkit2gtk4.1-devel
+sudo dnf install cargo rust gcc pkgconf libxkbcommon-devel libxkbcommon-x11-devel \
+  wayland-devel vulkan-loader-devel libX11-devel libxcb-devel fontconfig-devel freetype-devel
 ```
 
 Arch Linux:
 
 ```console
-sudo pacman -S --needed base-devel cargo gtk3 libappindicator-gtk3 libsoup3 \
-  librsvg rust webkit2gtk-4.1
+sudo pacman -S --needed base-devel cargo rust libxkbcommon libxkbcommon-x11 wayland \
+  vulkan-icd-loader libx11 libxcb fontconfig freetype2
 ```
 
-Install Tauri CLI and build the application:
-
-```console
-cargo install tauri-cli --version '^2' --locked
-git clone https://github.com/efetutorial/Darmoshark-K8-Driver.git
-cd Darmoshark-K8-Driver/src-tauri
-cargo tauri build --no-bundle
-```
-
-The executable is written to `src-tauri/target/release/`. Build a distribution
-package with one of the following commands:
-
-```console
-cargo tauri build --bundles deb
-cargo tauri build --bundles rpm
-cargo tauri build --bundles appimage
-```
-
-Packages are written below `src-tauri/target/release/bundle/`.
-
-On NixOS:
+Then build:
 
 ```console
 git clone https://github.com/efetutorial/Darmoshark-K8-Driver.git
 cd Darmoshark-K8-Driver
-nix develop
-cd src-tauri
-cargo tauri build --no-bundle
+cargo build --release --locked
 ```
+
+The executable is written to `target/release/`. See
+[packaging/README.md](packaging/README.md) to build `.deb` and `.rpm` packages.
+
+On NixOS, `nix build` produces a ready-to-run package, and `nix develop` provides
+a shell with the build and runtime libraries.
 
 ## Optional integrations
 
@@ -190,13 +165,12 @@ The app no longer converts GIFs into still images or fills all slots implicitly.
 ## Development
 
 ```console
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo test --locked --manifest-path src-tauri/Cargo.toml
-npm ci
-npx playwright install chromium
-npm test
+cargo fmt -- --check
+cargo test --locked
 nix flake check
 ```
+
+`--page <lighting|display|keys|macros|settings>` opens the app on a specific page.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and
 [docs/hardware-notes.md](docs/hardware-notes.md) for protocol notes.

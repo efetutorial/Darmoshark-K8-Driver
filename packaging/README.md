@@ -1,25 +1,36 @@
 # Packaging
 
-On Windows, `tauri.windows.conf.json` selects an NSIS installer and the Windows
-ICO asset. Build from `src-tauri/` with `cargo tauri build --bundles nsis -- --locked`.
-The installer uses the current user's installation directory and bootstraps
-WebView2 when needed. Windows uses the stock HID driver; the Linux udev rule is
-not installed. CI uploads the installer and standalone `.exe` as an artifact;
-tagged builds add the installer to the GitHub release.
+The application is a single native executable built with `cargo build --release`.
+There is no web runtime: the UI is drawn with GPUI.
 
-Tauri reads `src-tauri/tauri.conf.json` and produces Debian, RPM and AppImage
-bundles. Build them from `src-tauri/` with:
+## Linux
+
+Debian and RPM packages are built with
+[cargo-deb](https://github.com/kornelski/cargo-deb) and
+[cargo-generate-rpm](https://github.com/cat-in-136/cargo-generate-rpm), using the
+metadata in `Cargo.toml`:
 
 ```console
-cargo tauri build --bundles deb,rpm,appimage
+cargo build --release --locked
+cargo deb --no-build
+cargo generate-rpm
 ```
 
-The Debian and RPM bundles include the udev rule from this directory.
+Both packages install the udev rule from this directory. GPUI loads Vulkan,
+Wayland and X11 libraries at runtime, so the package dependencies list them
+explicitly. A working Vulkan driver is required.
 
-`arch/PKGBUILD.in` is a release template. The GitHub workflow replaces its
+`arch/PKGBUILD.in` is a release template. The release workflow replaces its
 version, repository and checksum placeholders and attaches the resulting
-`PKGBUILD` to the release.
+`PKGBUILD` to the release. The Nix flake builds the same binary and adds the
+runtime libraries to its rpath.
 
-The SVG icon and desktop entry are shared by all package formats. Keep their
-application ID and executable name aligned with `src-tauri/tauri.conf.json` and
-`src-tauri/Cargo.toml`.
+## Windows
+
+`cargo build --release --locked` produces
+`target/release/darmoshark-k8-studio.exe` with the icon from
+`assets/icons/icon.ico` embedded by `build.rs`. Windows uses the stock HID
+driver; the Linux udev rule is not needed. No installer is produced.
+
+The SVG icon and desktop entry are shared by the Linux package formats. Keep
+their application ID (`darmoshark-k8`) aligned with the `app_id` in `src/ui/mod.rs`.

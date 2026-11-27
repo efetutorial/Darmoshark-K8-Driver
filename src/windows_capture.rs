@@ -114,6 +114,7 @@ pub fn screen(size: u32) -> Result<RgbaImage, String> {
     }
 }
 
+#[allow(dead_code)] // Kept for a future system-info LCD card.
 pub fn system_card() -> Result<(u8, u64), String> {
     let mut memory = MEMORYSTATUSEX {
         dwLength: size_of::<MEMORYSTATUSEX>() as u32,

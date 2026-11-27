@@ -3,9 +3,10 @@ use crate::{
     keys,
 };
 use serde::Deserialize;
+#[cfg(test)]
 use serde_json::Value;
 
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MacroAction {
     Down,
@@ -14,12 +15,12 @@ pub enum MacroAction {
 
 #[derive(Deserialize)]
 pub struct MacroEvent {
-    key: String,
-    action: MacroAction,
-    delay: u16,
+    pub key: String,
+    pub action: MacroAction,
+    pub delay: u16,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Modifier {
     #[default]
@@ -91,6 +92,7 @@ pub enum WriteRequest {
 }
 
 impl WriteRequest {
+    #[cfg(test)]
     pub fn parse(path: &str, body: Option<Value>) -> Result<Self, String> {
         let request: Self = serde_json::from_value(serde_json::json!({
             "path": path, "body": body.unwrap_or_else(|| serde_json::json!({}))
@@ -100,7 +102,7 @@ impl WriteRequest {
         Ok(request)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         let profile = match self {
             Self::Profile { profile }
             | Self::Rate { profile, .. }

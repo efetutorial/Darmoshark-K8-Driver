@@ -39,19 +39,19 @@ pub struct KeyboardOptions {
     pub reserved_bits: u8,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Battery {
     pub percent: u8,
     pub state: String,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct SleepTimes {
     pub bluetooth: u16,
     pub wireless: u16,
     pub bluetooth_deep: u16,
     pub wireless_deep: u16,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Status {
     pub firmware: u16,
     pub battery: Battery,

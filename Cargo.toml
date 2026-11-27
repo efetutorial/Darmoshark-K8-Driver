@@ -1,0 +1,78 @@
+[package]
+name = "darmoshark-k8-studio"
+version = "2.0.0"
+description = "Desktop control studio for the Darmoshark K8"
+authors = ["Darmoshark K8 Linux contributors"]
+license = "MIT"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "darmoshark-k8-studio"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+fs2 = "0.4"
+gpui = "=0.2.2"
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+rustfft = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-segmentation = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
+windows = { version = "0.61", features = [
+    "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming", "Win32_Media_Multimedia",
+    "Win32_System_Com", "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant", "Win32_System_SystemInformation",
+] }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 8
+panic = "abort"
+
+# `cargo deb` (cargo-deb) and `cargo generate-rpm` (cargo-generate-rpm).
+# GPUI loads Vulkan, Wayland and X11 libraries at runtime, so they are listed
+# explicitly rather than detected from linked libraries.
+[package.metadata.deb]
+maintainer = "Darmoshark K8 Linux contributors"
+section = "utils"
+depends = "libc6, libvulkan1, libwayland-client0, libwayland-cursor0, libxkbcommon0, libxkbcommon-x11-0, libxcb1, libx11-6, libx11-xcb1, libfontconfig1, libfreetype6"
+recommends = "grim, pipewire-bin"
+assets = [
+    ["target/release/darmoshark-k8-studio", "usr/bin/", "755"],
+    ["packaging/darmoshark-k8.desktop", "usr/share/applications/", "644"],
+    ["packaging/darmoshark-k8.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["packaging/99-darmoshark-k8.rules", "lib/udev/rules.d/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/darmoshark-k8-studio", dest = "/usr/bin/darmoshark-k8-studio", mode = "755" },
+    { source = "packaging/darmoshark-k8.desktop", dest = "/usr/share/applications/darmoshark-k8.desktop", mode = "644" },
+    { source = "packaging/darmoshark-k8.svg", dest = "/usr/share/icons/hicolor/scalable/apps/darmoshark-k8.svg", mode = "644" },
+    { source = "packaging/99-darmoshark-k8.rules", dest = "/usr/lib/udev/rules.d/99-darmoshark-k8.rules", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+vulkan-loader = "*"
+libwayland-client = "*"
+libwayland-cursor = "*"
+libxkbcommon = "*"
+libxkbcommon-x11 = "*"
+libxcb = "*"
+libX11 = "*"
+libX11-xcb = "*"
+fontconfig = "*"
+freetype = "*"

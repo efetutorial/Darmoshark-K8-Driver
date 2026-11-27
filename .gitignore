@@ -1,9 +1,7 @@
-/src-tauri/target/
-/src-tauri/gen/schemas/
+/target/
 /dist/
 /result
 /result-*
-/node_modules/
 /.direnv/
 /.env
 /.env.*

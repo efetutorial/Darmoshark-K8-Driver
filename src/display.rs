@@ -1,5 +1,4 @@
 use crate::transport::Transport;
-use base64::{engine::general_purpose::STANDARD, Engine};
 use image::{
     codecs::gif::GifDecoder, imageops::FilterType, AnimationDecoder, DynamicImage, GenericImage,
     ImageDecoder, ImageFormat, ImageReader, Limits, RgbaImage,
@@ -223,79 +222,6 @@ pub fn upload(
     thread::sleep(Duration::from_millis(500));
     progress(1.0, "Complete".into());
     Ok(())
-}
-
-#[cfg(target_os = "linux")]
-pub fn capture_screen() -> Result<String, String> {
-    use std::{
-        path::Path,
-        process::{Command, Stdio},
-    };
-    let grim = ["grim", "/run/current-system/sw/bin/grim"]
-        .into_iter()
-        .find(|command| {
-            Path::new(command).is_absolute() && Path::new(command).exists()
-                || Command::new(command)
-                    .arg("--version")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .map(|status| status.success())
-                    .unwrap_or(false)
-        })
-        .ok_or("Screen capture needs the grim screenshot tool.")?;
-    let output = Command::new(grim)
-        .args(["-t", "png", "-"])
-        .output()
-        .map_err(|error| format!("Could not capture screen: {error}"))?;
-    if !output.status.success() || output.stdout.is_empty() {
-        return Err("Could not capture screen".into());
-    }
-    let bytes = output.stdout;
-    let image = image::load_from_memory(&bytes)
-        .map_err(|error| format!("Could not decode screenshot: {error}"))?;
-    let resized = image.resize(512, 512, FilterType::Lanczos3);
-    let mut png = Cursor::new(Vec::new());
-    resized
-        .write_to(&mut png, ImageFormat::Png)
-        .map_err(|error| error.to_string())?;
-    Ok(STANDARD.encode(png.into_inner()))
-}
-
-#[cfg(target_os = "linux")]
-pub fn system_card() -> Result<(u8, u64), String> {
-    use std::fs;
-    let memory = fs::read_to_string("/proc/meminfo").map_err(|error| error.to_string())?;
-    let value = |name: &str| -> Option<u64> {
-        memory
-            .lines()
-            .find(|line| line.starts_with(name))
-            .and_then(|line| line.split_whitespace().nth(1)?.parse().ok())
-    };
-    let total = value("MemTotal:").ok_or("MemTotal missing")?;
-    let available = value("MemAvailable:").ok_or("MemAvailable missing")?;
-    let uptime = fs::read_to_string("/proc/uptime")
-        .map_err(|error| error.to_string())?
-        .split_whitespace()
-        .next()
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(0.0) as u64;
-    Ok((((total - available) * 100 / total) as u8, uptime))
-}
-
-#[cfg(target_os = "windows")]
-pub fn capture_screen() -> Result<String, String> {
-    let image = DynamicImage::ImageRgba8(crate::windows_capture::screen(512)?);
-    let mut png = Cursor::new(Vec::new());
-    image
-        .write_to(&mut png, ImageFormat::Png)
-        .map_err(|error| error.to_string())?;
-    Ok(STANDARD.encode(png.into_inner()))
-}
-
-#[cfg(target_os = "windows")]
-pub fn system_card() -> Result<(u8, u64), String> {
-    crate::windows_capture::system_card()
 }
 
 #[cfg(test)]
