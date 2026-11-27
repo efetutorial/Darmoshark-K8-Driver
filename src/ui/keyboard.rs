@@ -8,7 +8,10 @@ use std::{collections::HashMap, rc::Rc};
 const ROW_UNITS: f32 = 16.05;
 
 pub enum Mode<'a> {
-    Preview { light: &'a LightingState, phase: f32 },
+    Preview {
+        light: &'a LightingState,
+        phase: f32,
+    },
     Picker {
         selected: Option<&'static str>,
         painted: &'a HashMap<&'static str, String>,
@@ -86,9 +89,15 @@ pub fn keyboard(t: &Theme, id: &'static str, mode: Mode<'_>) -> Div {
                     let x = (start + cap.width / 2.0) / ROW_UNITS;
                     let y = row_index as f32 / (rows - 1.0);
                     let (led, selected, clickable) = match &mode {
-                        Mode::Preview { light, phase } => (preview_color(light, x, y, *phase), false, false),
-                        Mode::Picker { selected, painted, .. } => (
-                            cap.key.and_then(|key| painted.get(key)).and_then(|c| hex_color(c)),
+                        Mode::Preview { light, phase } => {
+                            (preview_color(light, x, y, *phase), false, false)
+                        }
+                        Mode::Picker {
+                            selected, painted, ..
+                        } => (
+                            cap.key
+                                .and_then(|key| painted.get(key))
+                                .and_then(|c| hex_color(c)),
                             cap.key.is_some() && *selected == cap.key,
                             cap.key.is_some(),
                         ),
@@ -123,7 +132,9 @@ pub fn keyboard(t: &Theme, id: &'static str, mode: Mode<'_>) -> Div {
                     if let Some(led) = led {
                         keycap = keycap.bg(t.keycap.blend(led.opacity(led.a * 0.16)));
                     }
-                    if let (Mode::Picker { on_select, .. }, Some(key), true) = (&mode, cap.key, clickable) {
+                    if let (Mode::Picker { on_select, .. }, Some(key), true) =
+                        (&mode, cap.key, clickable)
+                    {
                         let on_select = on_select.clone();
                         keycap = keycap
                             .cursor_pointer()

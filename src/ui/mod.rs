@@ -215,13 +215,23 @@ const DEFAULT_LIGHT: fn() -> LightingState = || LightingState {
 
 impl Studio {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let color_input = cx.new(|cx| TextInput::new(cx, "#rrggbb").hex().max_len(7).with_text("#ff6432"));
-        let key_color_input =
-            cx.new(|cx| TextInput::new(cx, "#rrggbb").hex().max_len(7).with_text("#ff6432"));
+        let color_input = cx.new(|cx| {
+            TextInput::new(cx, "#rrggbb")
+                .hex()
+                .max_len(7)
+                .with_text("#ff6432")
+        });
+        let key_color_input = cx.new(|cx| {
+            TextInput::new(cx, "#rrggbb")
+                .hex()
+                .max_len(7)
+                .with_text("#ff6432")
+        });
         let display_delay = cx.new(|cx| TextInput::new(cx, "Auto").digits().max_len(3));
         let target_search = cx.new(|cx| TextInput::new(cx, "Search keys and actions"));
         let macro_repeat = cx.new(|cx| TextInput::new(cx, "1").digits().max_len(5).with_text("1"));
-        let sleep = std::array::from_fn(|_| cx.new(|cx| TextInput::new(cx, "0").digits().max_len(2)));
+        let sleep =
+            std::array::from_fn(|_| cx.new(|cx| TextInput::new(cx, "0").digits().max_len(2)));
 
         let mut subscriptions = vec![
             cx.subscribe(&color_input, |this, input, event, cx| {
@@ -360,17 +370,26 @@ impl Studio {
     }
 
     fn start_background_loops(&mut self, cx: &mut Context<Self>) {
-        // Periodic device check; never overwrites unsaved edits.
-        cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_secs(15)).await;
-            if this.update(cx, |this, cx| this.refresh(false, cx)).is_err() {
-                break;
+        // Poll more frequently while the keyboard is disconnected.
+        cx.spawn(async move |this, cx| {
+            let mut interval = Duration::from_secs(2);
+            loop {
+                cx.background_executor().timer(interval).await;
+                let Ok(connected) = this.update(cx, |this, cx| {
+                    this.refresh(false, cx);
+                    this.connected
+                }) else {
+                    break;
+                };
+                interval = Duration::from_secs(if connected { 15 } else { 2 });
             }
         })
         .detach();
         // Animation tick: lighting preview, audio spectrum and upload progress.
         cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(60)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(60))
+                .await;
             let alive = this.update(cx, |this, cx| {
                 let mut redraw = false;
                 if this.page == Page::Lighting {
@@ -426,6 +445,7 @@ impl Studio {
                 }
                 Err(error) => {
                     this.connected = false;
+                    this.status = None;
                     this.device_error = Some(error.clone());
                     if force {
                         this.notify_toast("Cannot read keyboard settings", error, true, cx);
@@ -441,7 +461,8 @@ impl Studio {
         if !self.dirty_lighting {
             self.light = status.lighting.clone();
             let color = self.light.color.clone();
-            self.color_input.update(cx, |input, cx| input.set_text(color, cx));
+            self.color_input
+                .update(cx, |input, cx| input.set_text(color, cx));
         }
         if !self.dirty_settings {
             self.rate = status.report_rate;
@@ -507,7 +528,14 @@ impl Studio {
         cx.notify();
     }
 
-    fn report(&mut self, result: Result<(), String>, ok: &str, detail: String, fail: &str, cx: &mut Context<Self>) {
+    fn report(
+        &mut self,
+        result: Result<(), String>,
+        ok: &str,
+        detail: String,
+        fail: &str,
+        cx: &mut Context<Self>,
+    ) {
         match result {
             Ok(()) => self.notify_toast(ok.to_string(), detail, false, cx),
             Err(error) => self.notify_toast(fail.to_string(), error, true, cx),
@@ -534,7 +562,12 @@ impl Studio {
                 match result {
                     Ok(()) => {
                         this.profile = profile;
-                        this.notify_toast("Profile changed", format!("Profile {}", profile + 1), false, cx);
+                        this.notify_toast(
+                            "Profile changed",
+                            format!("Profile {}", profile + 1),
+                            false,
+                            cx,
+                        );
                     }
                     Err(error) => this.notify_toast("Could not change profile", error, true, cx),
                 }
@@ -554,13 +587,15 @@ impl Studio {
     }
 
     fn menu_open(&self, id: &str) -> bool {
-        self.open_menu.as_ref().is_some_and(|open| open.as_ref() == id)
+        self.open_menu
+            .as_ref()
+            .is_some_and(|open| open.as_ref() == id)
     }
 
     fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input = cx.new(|cx| TextInput::new(cx, "Jump to a page or action…"));
-        let subscription = cx.subscribe_in(&input, window, |this, _, event, window, cx| {
-            match event {
+        let subscription =
+            cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
                 InputEvent::Changed => {
                     if let Some(palette) = this.palette.as_mut() {
                         palette.index = 0;
@@ -568,8 +603,7 @@ impl Studio {
                     cx.notify();
                 }
                 InputEvent::Submit => this.run_palette(window, cx),
-            }
-        });
+            });
         self._subscriptions.push(subscription);
         window.focus(&input.focus_handle(cx));
         self.palette = Some(Palette { input, index: 0 });
@@ -586,7 +620,9 @@ impl Studio {
             .iter()
             .map(|page| (page.title(), page.subtitle(), *page))
             .filter(|(title, subtitle, _)| {
-                format!("{title} {subtitle}").to_lowercase().contains(&query)
+                format!("{title} {subtitle}")
+                    .to_lowercase()
+                    .contains(&query)
             })
             .collect()
     }
@@ -652,7 +688,12 @@ impl Studio {
         }
     }
 
-    fn on_modifiers(&mut self, event: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_modifiers(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(recording) = self.recording.as_ref() else {
             return;
         };
@@ -669,7 +710,11 @@ impl Studio {
         ];
         for (was, is, name) in changes {
             if was != is {
-                let action = if is { MacroAction::Down } else { MacroAction::Up };
+                let action = if is {
+                    MacroAction::Down
+                } else {
+                    MacroAction::Up
+                };
                 self.record_event(name.into(), action, Instant::now(), cx);
             }
         }
@@ -678,7 +723,12 @@ impl Studio {
         }
     }
 
-    fn render_window_controls(&self, t: &Theme, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_window_controls(
+        &self,
+        t: &Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let maximized = window.is_maximized();
         let control = |id: &'static str, glyph: Icon, area: WindowControlArea, danger: bool| {
             let hover = if danger { t.danger } else { t.hover };
@@ -695,12 +745,7 @@ impl Studio {
                 .window_control_area(area)
                 .hover(move |style| style.bg(hover).text_color(hover_fg))
                 .text_color(fg)
-                .child(
-                    gpui::svg()
-                        .path(glyph.path())
-                        .size(px(14.))
-                        .text_color(fg),
-                )
+                .child(gpui::svg().path(glyph.path()).size(px(14.)).text_color(fg))
         };
         div()
             .flex()
@@ -712,7 +757,11 @@ impl Studio {
             .child(
                 control(
                     "win-max",
-                    if maximized { Icon::Restore } else { Icon::Maximize },
+                    if maximized {
+                        Icon::Restore
+                    } else {
+                        Icon::Maximize
+                    },
                     WindowControlArea::Max,
                     false,
                 )
@@ -775,7 +824,12 @@ impl Studio {
                                     .text_color(t.text)
                                     .child("K8 Studio"),
                             )
-                            .child(div().text_size(px(11.)).text_color(t.faint).child("Darmoshark")),
+                            .child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(t.faint)
+                                    .child("Darmoshark"),
+                            ),
                     ),
             )
             .child(
@@ -795,7 +849,13 @@ impl Studio {
                     .hover(move |style| style.bg(hover))
                     .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx)))
                     .child(icon(Icon::Search, 14., t.faint))
-                    .child(div().flex_1().text_size(px(12.)).text_color(t.faint).child("Search"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.))
+                            .text_color(t.faint)
+                            .child("Search"),
+                    )
                     .child(div().text_size(px(11.)).text_color(t.faint).child("Ctrl K")),
             )
             .child(
@@ -827,7 +887,11 @@ impl Studio {
                                 this.text_color(t.muted).hover(move |style| style.bg(hover))
                             })
                             .on_click(cx.listener(move |this, _, _, cx| this.navigate(page, cx)))
-                            .child(icon(page.icon(), 16., if active { t.text } else { t.muted }))
+                            .child(icon(
+                                page.icon(),
+                                16.,
+                                if active { t.text } else { t.muted },
+                            ))
                             .child(page.title())
                     })),
             )
@@ -871,12 +935,11 @@ impl Studio {
                             .bg(t.surface)
                             .border_1()
                             .border_color(t.border)
-                            .child(
-                                div()
-                                    .size(px(8.))
-                                    .rounded(px(4.))
-                                    .bg(if connected { t.success } else { t.faint }),
-                            )
+                            .child(div().size(px(8.)).rounded(px(4.)).bg(if connected {
+                                t.success
+                            } else {
+                                t.faint
+                            }))
                             .child(
                                 div()
                                     .flex()
@@ -887,21 +950,35 @@ impl Studio {
                                             .text_size(px(12.))
                                             .font_weight(gpui::FontWeight::MEDIUM)
                                             .text_color(t.text)
-                                            .child(if connected { "Darmoshark K8" } else { "Disconnected" }),
+                                            .child(if connected {
+                                                "Darmoshark K8"
+                                            } else {
+                                                "Disconnected"
+                                            }),
                                     )
                                     .child(
                                         div()
                                             .text_size(px(11.))
                                             .text_color(t.faint)
                                             .truncate()
-                                            .child(if connected { firmware } else { "Connect by USB cable".into() }),
+                                            .child(if connected {
+                                                firmware
+                                            } else {
+                                                "Connect by USB cable".into()
+                                            }),
                                     ),
                             ),
                     ),
             )
     }
 
-    fn render_topbar(&self, t: &Theme, show_controls: bool, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_topbar(
+        &self,
+        t: &Theme,
+        show_controls: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let refreshing = self.is_busy("refresh");
         div()
             .id("topbar")
@@ -911,23 +988,24 @@ impl Studio {
             .h(px(52.))
             .pl(px(4.))
             .pr(px(10.))
-            .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(MouseButton::Left, |event, window, _| {
-                if event.click_count == 1 {
-                    window.start_window_move()
-                }
-            })
-            .on_click(cx.listener(|_, event: &gpui::ClickEvent, window, _| {
-                if event.click_count() == 2 {
-                    window.zoom_window();
-                }
-            }))
             .child(
                 div()
+                    .id("topbar-title")
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_w_0()
+                    .window_control_area(WindowControlArea::Drag)
+                    .on_mouse_down(MouseButton::Left, |event, window, _| {
+                        if event.click_count == 1 {
+                            window.start_window_move();
+                        }
+                    })
+                    .on_click(|event, window, _| {
+                        if event.click_count() == 2 {
+                            window.zoom_window();
+                        }
+                    })
                     .child(
                         div()
                             .text_size(px(15.))
@@ -946,24 +1024,19 @@ impl Studio {
             .child(
                 icon_button(t, "refresh", Icon::Refresh)
                     .when(refreshing, |this| this.opacity(0.5))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(true, cx))),
             )
             .child(
-                icon_button(t, "activity", Icon::Activity)
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _, _, cx| {
+                icon_button(t, "activity", Icon::Activity).on_click(cx.listener(
+                    |this, _, _, cx| {
                         this.drawer_open = !this.drawer_open;
                         cx.notify();
-                    })),
+                    },
+                )),
             )
             .when(show_controls, |this| {
                 this.child(div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(t.border))
-                    .child(
-                        div()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .child(self.render_window_controls(t, window, cx)),
-                    )
+                    .child(self.render_window_controls(t, window, cx))
             })
     }
 
@@ -995,11 +1068,14 @@ impl Studio {
                 .border_1()
                 .border_color(t.border_strong)
                 .shadow_lg()
-                .child(div().mt(px(5.)).size(px(7.)).rounded(px(4.)).flex_none().bg(if toast.error {
-                    t.danger
-                } else {
-                    t.success
-                }))
+                .child(
+                    div()
+                        .mt(px(5.))
+                        .size(px(7.))
+                        .rounded(px(4.))
+                        .flex_none()
+                        .bg(if toast.error { t.danger } else { t.success }),
+                )
                 .child(
                     div()
                         .flex()
@@ -1058,10 +1134,9 @@ impl Studio {
                             .h(px(52.))
                             .px(px(16.))
                             .child(widgets::card_title(t, "Activity"))
-                            .child(
-                                icon_button(t, "drawer-close", Icon::Close)
-                                    .on_click(cx.listener(|this, _, window, cx| this.close_overlays(window, cx))),
-                            ),
+                            .child(icon_button(t, "drawer-close", Icon::Close).on_click(
+                                cx.listener(|this, _, window, cx| this.close_overlays(window, cx)),
+                            )),
                     )
                     .child(
                         div()
@@ -1114,18 +1189,30 @@ impl Studio {
                     )
                     .child(
                         div().p(px(12.)).child(
-                            button(t, "activity-clear", "Clear activity", Kind::Secondary, None, false)
-                                .w_full()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.activities.clear();
-                                    cx.notify();
-                                })),
+                            button(
+                                t,
+                                "activity-clear",
+                                "Clear activity",
+                                Kind::Secondary,
+                                None,
+                                false,
+                            )
+                            .w_full()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.activities.clear();
+                                cx.notify();
+                            })),
                         ),
                     ),
             )
     }
 
-    fn modal(t: &Theme, id: &'static str, cx: &mut Context<Self>, body: impl IntoElement) -> impl IntoElement {
+    fn modal(
+        t: &Theme,
+        id: &'static str,
+        cx: &mut Context<Self>,
+        body: impl IntoElement,
+    ) -> impl IntoElement {
         div()
             .absolute()
             .inset_0()
@@ -1171,28 +1258,32 @@ impl Studio {
             .gap(px(8.))
             .child(palette.input.clone())
             .child(
-                div().flex().flex_col().gap(px(2.)).children(items.into_iter().enumerate().map(
-                    |(index, (title, subtitle, page))| {
-                        div()
-                            .id(("palette-item", index))
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .px(px(10.))
-                            .py(px(8.))
-                            .rounded(px(8.))
-                            .cursor_pointer()
-                            .when(index == selected, |this| this.bg(t.active))
-                            .hover(move |style| style.bg(hover))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.navigate(page, cx);
-                                this.close_overlays(window, cx);
-                            }))
-                            .child(icon(page.icon(), 16., t.muted))
-                            .child(div().text_size(px(13.)).text_color(t.text).child(title))
-                            .child(div().text_size(px(12.)).text_color(t.faint).child(subtitle))
-                    },
-                )),
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .children(items.into_iter().enumerate().map(
+                        |(index, (title, subtitle, page))| {
+                            div()
+                                .id(("palette-item", index))
+                                .flex()
+                                .items_center()
+                                .gap(px(10.))
+                                .px(px(10.))
+                                .py(px(8.))
+                                .rounded(px(8.))
+                                .cursor_pointer()
+                                .when(index == selected, |this| this.bg(t.active))
+                                .hover(move |style| style.bg(hover))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.navigate(page, cx);
+                                    this.close_overlays(window, cx);
+                                }))
+                                .child(icon(page.icon(), 16., t.muted))
+                                .child(div().text_size(px(13.)).text_color(t.text).child(title))
+                                .child(div().text_size(px(12.)).text_color(t.faint).child(subtitle))
+                        },
+                    )),
             )
             .child(widgets::hint(t, "↑↓ select · Enter open · Esc close"));
         Some(Self::modal(t, "palette", cx, body))
@@ -1221,11 +1312,20 @@ impl Studio {
                     .gap(px(8.))
                     .child(
                         button(t, "confirm-cancel", "Cancel", Kind::Secondary, None, false)
-                            .on_click(cx.listener(|this, _, window, cx| this.close_overlays(window, cx))),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.close_overlays(window, cx)),
+                            ),
                     )
                     .child(
-                        button(t, "confirm-ok", confirm.confirm_label.clone(), Kind::Danger, None, false)
-                            .on_click(cx.listener(|this, _, window, cx| this.run_confirm(window, cx))),
+                        button(
+                            t,
+                            "confirm-ok",
+                            confirm.confirm_label.clone(),
+                            Kind::Danger,
+                            None,
+                            false,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| this.run_confirm(window, cx))),
                     ),
             );
         Some(Self::modal(t, "confirm", cx, body))
@@ -1244,7 +1344,10 @@ fn initial_page() -> Page {
     while let Some(arg) = args.next() {
         if arg == "--page" {
             if let Some(name) = args.next() {
-                if let Some(page) = Page::ALL.iter().find(|page| page.title().eq_ignore_ascii_case(&name)) {
+                if let Some(page) = Page::ALL
+                    .iter()
+                    .find(|page| page.title().eq_ignore_ascii_case(&name))
+                {
                     return *page;
                 }
             }
@@ -1282,6 +1385,7 @@ impl Render for Studio {
         let show_controls = client_side || cfg!(target_os = "windows");
         let page = self.render_page(window, cx);
         let offline = !self.connected;
+        let refreshing = self.is_busy("refresh");
 
         div()
             .id("studio")
@@ -1408,10 +1512,18 @@ impl Render for Studio {
                                         .child(icon(Icon::Warning, 15., t.muted))
                                         .child(widgets::hint(
                                             &t,
-                                            self.device_error.clone().unwrap_or_else(|| {
-                                                "Keyboard not detected. Connect the K8 with a USB cable and switch it to wired mode.".into()
-                                            }),
-                                        )),
+                                            if refreshing && self.device_error.is_none() {
+                                                "Checking for the keyboard…".into()
+                                            } else {
+                                                self.device_error.clone().unwrap_or_else(|| {
+                                                    "Keyboard not detected. Connect the K8 with a USB cable and switch it to wired mode.".into()
+                                                })
+                                            },
+                                        ).flex_1())
+                                        .child(
+                                            button(&t, "retry-keyboard", "Retry", Kind::Secondary, None, refreshing)
+                                                .on_click(cx.listener(|this, _, _, cx| this.refresh(false, cx))),
+                                        ),
                                 )
                             })
                             .child(
@@ -1475,9 +1587,7 @@ pub fn run() {
                     },
                 )
                 .expect("Could not open the K8 Studio window");
-            window
-                .update(cx, |_, _, cx| cx.activate(true))
-                .ok();
+            window.update(cx, |_, _, cx| cx.activate(true)).ok();
             cx.on_window_closed(|cx| {
                 if cx.windows().is_empty() {
                     cx.quit();

@@ -36,13 +36,21 @@ impl ReportState {
         let mut events: Vec<KeyEvent> = before
             .iter()
             .filter(|usage| !after.contains(usage))
-            .map(|&usage| KeyEvent { usage, down: false, at })
+            .map(|&usage| KeyEvent {
+                usage,
+                down: false,
+                at,
+            })
             .collect();
         events.extend(
             after
                 .iter()
                 .filter(|usage| !before.contains(usage))
-                .map(|&usage| KeyEvent { usage, down: true, at }),
+                .map(|&usage| KeyEvent {
+                    usage,
+                    down: true,
+                    at,
+                }),
         );
         events
     }
@@ -92,13 +100,27 @@ mod platform {
     };
 
     const HID_ID: &str = "0003:00003151:00004015";
-    const BOOT_KEYBOARD: &[u8] = b"\x05\x01\x09\x06\xa1\x01\x05\x07";
+    const KEYBOARD_COLLECTION: &[u8] = b"\x05\x01\x09\x06\xa1\x01";
     const NKRO_KEYBOARD: &[u8] = b"\x05\x01\x09\x06\xa1\x01\x85\x01\x05\x07";
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Kind {
         Boot,
         Nkro,
+    }
+
+    fn keyboard_kind(descriptor: &[u8]) -> Option<Kind> {
+        if descriptor
+            .windows(NKRO_KEYBOARD.len())
+            .any(|collection| collection == NKRO_KEYBOARD)
+        {
+            Some(Kind::Nkro)
+        } else if descriptor.starts_with(KEYBOARD_COLLECTION) {
+            // The K8's unnumbered keyboard collection describes its LED outputs first.
+            Some(Kind::Boot)
+        } else {
+            None
+        }
     }
 
     fn interfaces() -> Vec<(std::path::PathBuf, Kind)> {
@@ -111,21 +133,22 @@ mod platform {
             let Ok(uevent) = fs::read_to_string(device.join("uevent")) else {
                 continue;
             };
-            if !uevent.lines().any(|line| line == format!("HID_ID={HID_ID}")) {
+            if !uevent
+                .lines()
+                .any(|line| line == format!("HID_ID={HID_ID}"))
+            {
                 continue;
             }
             let Ok(descriptor) = fs::read(device.join("report_descriptor")) else {
                 continue;
             };
-            let has = |pattern: &[u8]| descriptor.windows(pattern.len()).any(|w| w == pattern);
-            let kind = if descriptor.starts_with(BOOT_KEYBOARD) {
-                Kind::Boot
-            } else if has(NKRO_KEYBOARD) {
-                Kind::Nkro
-            } else {
+            let Some(kind) = keyboard_kind(&descriptor) else {
                 continue;
             };
-            found.push((std::path::PathBuf::from("/dev").join(entry.file_name()), kind));
+            found.push((
+                std::path::PathBuf::from("/dev").join(entry.file_name()),
+                kind,
+            ));
         }
         found
     }
@@ -193,7 +216,9 @@ mod platform {
                 });
             }
             if opened == 0 {
-                return Err("The K8 keyboard interface cannot be read. Reinstall the udev rule.".into());
+                return Err(
+                    "The K8 keyboard interface cannot be read. Reinstall the udev rule.".into(),
+                );
             }
             Ok(Self { stop, events })
         }
@@ -201,6 +226,17 @@ mod platform {
         pub fn drain(&self) -> Vec<KeyEvent> {
             self.events.try_iter().collect()
         }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn identifies_k8_keyboard_descriptors() {
+        let boot = b"\x05\x01\x09\x06\xa1\x01\x05\x08\x15\x00\x25\x01";
+        let nkro = b"\x05\x0c\x09\x01\xa1\x01\x85\x03\xc0\x05\x01\x09\x06\xa1\x01\x85\x01\x05\x07";
+        let vendor = b"\x06\xff\xff\x09\x02\xa1\x01";
+        assert_eq!(keyboard_kind(boot), Some(Kind::Boot));
+        assert_eq!(keyboard_kind(nkro), Some(Kind::Nkro));
+        assert_eq!(keyboard_kind(vendor), None);
     }
 }
 
@@ -238,9 +274,18 @@ mod tests {
         assert!(events.iter().any(|e| e.usage == 4 && e.down));
         // Release A, keep shift.
         let events = state.boot_report(&[0x02, 0, 0, 0, 0, 0, 0, 0], at);
-        assert_eq!(events, vec![KeyEvent { usage: 4, down: false, at }]);
+        assert_eq!(
+            events,
+            vec![KeyEvent {
+                usage: 4,
+                down: false,
+                at
+            }]
+        );
         // Rollover error codes are ignored.
-        assert!(state.boot_report(&[0x02, 0, 1, 1, 1, 1, 1, 1], at).is_empty());
+        assert!(state
+            .boot_report(&[0x02, 0, 1, 1, 1, 1, 1, 1], at)
+            .is_empty());
     }
 
     #[test]
@@ -251,7 +296,11 @@ mod tests {
         report[0] = 1;
         report[1 + 41 / 8] |= 1 << (41 % 8); // Esc
         report[1 + 30 / 8] |= 1 << (30 % 8); // 1
-        let mut usages: Vec<u8> = state.nkro_report(&report, at).iter().map(|e| e.usage).collect();
+        let mut usages: Vec<u8> = state
+            .nkro_report(&report, at)
+            .iter()
+            .map(|e| e.usage)
+            .collect();
         usages.sort();
         assert_eq!(usages, vec![30, 41]);
         // A key held on both interfaces is reported once.

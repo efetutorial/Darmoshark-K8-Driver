@@ -5,7 +5,10 @@ use super::{
     Studio,
 };
 use crate::backend::Progress;
-use gpui::{div, img, prelude::*, px, relative, AnyElement, Context, ObjectFit, PathPromptOptions, SharedString, Window};
+use gpui::{
+    div, img, prelude::*, px, relative, AnyElement, Context, ObjectFit, PathPromptOptions,
+    SharedString, Window,
+};
 use std::{path::PathBuf, rc::Rc};
 
 const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
@@ -18,7 +21,12 @@ fn is_gif(path: &std::path::Path) -> bool {
 impl Studio {
     pub(super) fn choose_display_file(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if self.is_busy("upload") {
-            self.notify_toast("Upload in progress", "Wait before selecting another image.", true, cx);
+            self.notify_toast(
+                "Upload in progress",
+                "Wait before selecting another image.",
+                true,
+                cx,
+            );
             return;
         }
         match std::fs::metadata(&path) {
@@ -51,7 +59,8 @@ impl Studio {
                 return;
             };
             if let Some(path) = paths.into_iter().next() {
-                this.update(cx, |this, cx| this.choose_display_file(path, cx)).ok();
+                this.update(cx, |this, cx| this.choose_display_file(path, cx))
+                    .ok();
             }
         })
         .detach();
@@ -71,7 +80,12 @@ impl Studio {
                 match text.parse::<u8>() {
                     Ok(value) if value >= 1 => Some(value),
                     _ => {
-                        self.notify_toast("Invalid GIF delay", "Use 1–255 ms, or leave it empty for automatic timing.", true, cx);
+                        self.notify_toast(
+                            "Invalid GIF delay",
+                            "Use 1–255 ms, or leave it empty for automatic timing.",
+                            true,
+                            cx,
+                        );
                         return;
                     }
                 }
@@ -107,7 +121,11 @@ impl Studio {
         );
     }
 
-    pub(super) fn render_display(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_display(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = theme(cx);
         let view = cx.entity().downgrade();
         let uploading = self.is_busy("upload");
@@ -147,9 +165,7 @@ impl Studio {
                             .justify_center()
                             .map(|this| match &self.display_file {
                                 Some(path) => this.child(
-                                    img(path.clone())
-                                        .size_full()
-                                        .object_fit(ObjectFit::Contain),
+                                    img(path.clone()).size_full().object_fit(ObjectFit::Contain),
                                 ),
                                 None => this.child(
                                     div()
@@ -166,7 +182,13 @@ impl Studio {
                     .w_full()
                     .justify_between()
                     .gap(px(8.))
-                    .child(div().text_size(px(12.)).text_color(t.muted).truncate().child(name))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(t.muted)
+                            .truncate()
+                            .child(name),
+                    )
                     .child(div().text_size(px(12.)).text_color(t.faint).child(size)),
             );
 

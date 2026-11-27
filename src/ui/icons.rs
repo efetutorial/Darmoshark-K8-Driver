@@ -82,9 +82,7 @@ fn body(path: &str) -> Option<&'static str> {
         "icons/keyboard.svg" => {
             r#"<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h1M10 10h1M13.5 10h1M17 10h.5M6.5 13.5h1M17 13.5h.5M10 14h4"/>"#
         }
-        "icons/macro.svg" => {
-            r#"<path d="M4 7h6M4 12h10M4 17h6"/><path d="m15 14 5 3-5 3z"/>"#
-        }
+        "icons/macro.svg" => r#"<path d="M4 7h6M4 12h10M4 17h6"/><path d="m15 14 5 3-5 3z"/>"#,
         "icons/settings.svg" => {
             r#"<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>"#
         }
@@ -105,12 +103,16 @@ fn body(path: &str) -> Option<&'static str> {
         "icons/trash.svg" => {
             r#"<path d="M4.5 7h15M10 4h4M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>"#
         }
-        "icons/upload.svg" => r#"<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/>"#,
-        "icons/download.svg" => r#"<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/>"#,
-        "icons/warning.svg" => {
-            r#"<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 16.8v.2"/>"#
+        "icons/upload.svg" => {
+            r#"<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/>"#
         }
-        "icons/record.svg" => r#"<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" fill="black"/>"#,
+        "icons/download.svg" => {
+            r#"<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/>"#
+        }
+        "icons/warning.svg" => r#"<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 16.8v.2"/>"#,
+        "icons/record.svg" => {
+            r#"<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" fill="black"/>"#
+        }
         "icons/stop.svg" => r#"<rect x="7" y="7" width="10" height="10" rx="1.5"/>"#,
         "icons/music.svg" => {
             r#"<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>"#

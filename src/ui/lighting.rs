@@ -7,7 +7,9 @@ use super::{
     Studio,
 };
 use crate::{backend::LiveKind, model, presets::Preset, requests::WriteRequest};
-use gpui::{div, hsla, Focusable, prelude::*, px, AnyElement, Context, MouseButton, SharedString, Window};
+use gpui::{
+    div, hsla, prelude::*, px, AnyElement, Context, Focusable, MouseButton, SharedString, Window,
+};
 use std::rc::Rc;
 
 impl Studio {
@@ -15,7 +17,8 @@ impl Studio {
         self.light.color = color.clone();
         self.light.rainbow = false;
         self.dirty_lighting = true;
-        self.color_input.update(cx, |input, cx| input.set_text(color, cx));
+        self.color_input
+            .update(cx, |input, cx| input.set_text(color, cx));
         cx.notify();
     }
 
@@ -32,8 +35,16 @@ impl Studio {
                     this.live = None;
                 }
                 match quiet_name {
-                    Some(name) => this.report(result, "Preset applied", name, "Could not apply preset", cx),
-                    None => this.report(result, "Lighting applied", label, "Could not apply lighting", cx),
+                    Some(name) => {
+                        this.report(result, "Preset applied", name, "Could not apply preset", cx)
+                    }
+                    None => this.report(
+                        result,
+                        "Lighting applied",
+                        label,
+                        "Could not apply lighting",
+                        cx,
+                    ),
                 }
             },
         );
@@ -86,7 +97,11 @@ impl Studio {
 
     fn open_preset_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = format!("Preset {}", chrono::Local::now().format("%H:%M"));
-        let input = cx.new(|cx| TextInput::new(cx, "Preset name").max_len(100).with_text(name));
+        let input = cx.new(|cx| {
+            TextInput::new(cx, "Preset name")
+                .max_len(100)
+                .with_text(name)
+        });
         let subscription = cx.subscribe_in(&input, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::Submit) {
                 this.save_preset(window, cx);
@@ -109,7 +124,11 @@ impl Studio {
         self.close_overlays(window, cx);
     }
 
-    pub(super) fn render_preset_modal(&self, t: &Theme, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    pub(super) fn render_preset_modal(
+        &self,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
         let input = self.preset_name.as_ref()?;
         let body = div()
             .flex()
@@ -117,7 +136,10 @@ impl Studio {
             .gap(px(12.))
             .p(px(6.))
             .child(card_title(t, "Save preset"))
-            .child(hint(t, "Stores the current effect, color, brightness, speed and direction."))
+            .child(hint(
+                t,
+                "Stores the current effect, color, brightness, speed and direction.",
+            ))
             .child(input.clone())
             .child(
                 div()
@@ -126,11 +148,14 @@ impl Studio {
                     .gap(px(8.))
                     .child(
                         button(t, "preset-cancel", "Cancel", Kind::Secondary, None, false)
-                            .on_click(cx.listener(|this, _, window, cx| this.close_overlays(window, cx))),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.close_overlays(window, cx)),
+                            ),
                     )
                     .child(
-                        button(t, "preset-save", "Save", Kind::Primary, None, false)
-                            .on_click(cx.listener(|this, _, window, cx| this.save_preset(window, cx))),
+                        button(t, "preset-save", "Save", Kind::Primary, None, false).on_click(
+                            cx.listener(|this, _, window, cx| this.save_preset(window, cx)),
+                        ),
                     ),
             );
         Some(Self::modal(t, "preset-modal", cx, body))
@@ -160,19 +185,24 @@ impl Studio {
                     )
                     .child(div().w(px(110.)).child(self.color_input.clone()))
                     .child(
-                        div().flex().gap(px(6.)).children(model::SWATCHES.iter().map(|swatch| {
-                            let swatch = *swatch;
-                            let selected = current.eq_ignore_ascii_case(swatch);
-                            div()
-                                .id(SharedString::from(format!("swatch-{swatch}")))
-                                .size(px(20.))
-                                .rounded(px(10.))
-                                .cursor_pointer()
-                                .bg(hex_color(swatch).unwrap())
-                                .border_2()
-                                .border_color(if selected { t.text } else { t.border })
-                                .on_click(cx.listener(move |this, _, _, cx| this.set_color(swatch.into(), cx)))
-                        })),
+                        div()
+                            .flex()
+                            .gap(px(6.))
+                            .children(model::SWATCHES.iter().map(|swatch| {
+                                let swatch = *swatch;
+                                let selected = current.eq_ignore_ascii_case(swatch);
+                                div()
+                                    .id(SharedString::from(format!("swatch-{swatch}")))
+                                    .size(px(20.))
+                                    .rounded(px(10.))
+                                    .cursor_pointer()
+                                    .bg(hex_color(swatch).unwrap())
+                                    .border_2()
+                                    .border_color(if selected { t.text } else { t.border })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.set_color(swatch.into(), cx)
+                                    }))
+                            })),
                     ),
             )
             .child(
@@ -185,7 +215,9 @@ impl Studio {
                     .border_color(t.border)
                     .children((0..segments).map(|index| {
                         let h = index as f32 * 360.0 / segments as f32;
-                        let active = ((hue / (360.0 / segments as f32)).round() as usize) % segments == index;
+                        let active = ((hue / (360.0 / segments as f32)).round() as usize)
+                            % segments
+                            == index;
                         let pick = cx.listener(move |this, _: &gpui::MouseDownEvent, _, cx| {
                             this.set_color(hsv_hex(h, 1.0, 1.0), cx)
                         });
@@ -225,7 +257,9 @@ impl Studio {
                 let picks: Vec<String> = options.iter().map(|(id, _)| id.clone()).collect();
                 let items = options
                     .iter()
-                    .map(|(id, label)| (SharedString::from(label.clone()), *id == self.light.effect))
+                    .map(|(id, label)| {
+                        (SharedString::from(label.clone()), *id == self.light.effect)
+                    })
                     .collect();
                 let pick_view = view.clone();
                 let dismiss_view = view.clone();
@@ -239,7 +273,10 @@ impl Studio {
                             .update(cx, |this, cx| {
                                 this.light.effect = effect;
                                 let directions = model::capabilities(&this.light.effect).directions;
-                                if !directions.iter().any(|(value, _)| *value == this.light.direction) {
+                                if !directions
+                                    .iter()
+                                    .any(|(value, _)| *value == this.light.direction)
+                                {
                                     this.light.direction = "right".into();
                                 }
                                 this.dirty_lighting = true;
@@ -295,8 +332,13 @@ impl Studio {
                     .iter()
                     .position(|(value, _)| *value == self.light.direction)
                     .unwrap_or(0);
-                let values: Vec<&'static str> = caps.directions.iter().map(|(value, _)| *value).collect();
-                let labels = caps.directions.iter().map(|(_, label)| SharedString::from(*label)).collect();
+                let values: Vec<&'static str> =
+                    caps.directions.iter().map(|(value, _)| *value).collect();
+                let labels = caps
+                    .directions
+                    .iter()
+                    .map(|(_, label)| SharedString::from(*label))
+                    .collect();
                 let view = view.clone();
                 this.child(field(
                     t,
@@ -322,14 +364,26 @@ impl Studio {
                 this.child(field(
                     t,
                     format!("Brightness · {} / 4", self.light.brightness),
-                    widgets::steps(t, "brightness", self.light.brightness, 4, step_handler(|s, v| s.light.brightness = v)),
+                    widgets::steps(
+                        t,
+                        "brightness",
+                        self.light.brightness,
+                        4,
+                        step_handler(|s, v| s.light.brightness = v),
+                    ),
                 ))
             })
             .when(caps.speed, |this| {
                 this.child(field(
                     t,
                     format!("Speed · {} / 4", self.light.speed),
-                    widgets::steps(t, "speed", self.light.speed, 4, step_handler(|s, v| s.light.speed = v)),
+                    widgets::steps(
+                        t,
+                        "speed",
+                        self.light.speed,
+                        4,
+                        step_handler(|s, v| s.light.speed = v),
+                    ),
                 ))
             })
             .when(caps.slot, |this| {
@@ -355,9 +409,20 @@ impl Studio {
             })
             .when_some(caps.note, |this, note| this.child(hint(t, note)))
             .child(
-                button(t, "apply-lighting", if busy { "Applying…" } else { "Apply lighting" }, Kind::Primary, None, busy)
-                    .w_full()
-                    .on_click(cx.listener(|this, _, _, cx| this.apply_lighting(None, cx))),
+                button(
+                    t,
+                    "apply-lighting",
+                    if busy {
+                        "Applying…"
+                    } else {
+                        "Apply lighting"
+                    },
+                    Kind::Primary,
+                    None,
+                    busy,
+                )
+                .w_full()
+                .on_click(cx.listener(|this, _, _, cx| this.apply_lighting(None, cx))),
             )
     }
 
@@ -435,74 +500,105 @@ impl Studio {
                     .justify_between()
                     .child(card_title(t, "Presets"))
                     .child(
-                        button(t, "save-preset", "Save current", Kind::Secondary, Some(Icon::Plus), false)
-                            .on_click(cx.listener(|this, _, window, cx| this.open_preset_modal(window, cx))),
+                        button(
+                            t,
+                            "save-preset",
+                            "Save current",
+                            Kind::Secondary,
+                            Some(Icon::Plus),
+                            false,
+                        )
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.open_preset_modal(window, cx)),
+                        ),
                     ),
             )
             .when(self.presets.presets.is_empty(), |this| {
-                this.child(hint(t, "No presets yet. Save the current lighting to reuse it later."))
+                this.child(hint(
+                    t,
+                    "No presets yet. Save the current lighting to reuse it later.",
+                ))
             })
             .child(
-                div().flex().flex_wrap().gap(px(8.)).children(self.presets.presets.iter().enumerate().map(
-                    |(index, preset)| {
-                        let swatch = if preset.rainbow {
-                            hsla(0.8, 0.7, 0.6, 1.0)
-                        } else {
-                            hex_color(&preset.color).unwrap_or(t.control)
-                        };
-                        div()
-                            .id(("preset", index))
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .pl(px(8.))
-                            .pr(px(4.))
-                            .py(px(4.))
-                            .rounded(px(8.))
-                            .bg(t.control)
-                            .border_1()
-                            .border_color(t.border)
-                            .cursor_pointer()
-                            .hover(move |style| style.bg(hover))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(preset) = this.presets.presets.get(index).cloned() {
-                                    this.light = preset.lighting();
-                                    let color = this.light.color.clone();
-                                    this.color_input.update(cx, |input, cx| input.set_text(color, cx));
-                                    this.apply_lighting(Some(preset.name), cx);
-                                }
-                            }))
-                            .child(div().size(px(12.)).rounded(px(6.)).bg(swatch))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(div().text_size(px(12.)).text_color(t.text).child(preset.name.clone()))
-                                    .child(
-                                        div()
-                                            .text_size(px(11.))
-                                            .text_color(t.faint)
-                                            .child(model::effect_label(&preset.effect)),
-                                    ),
-                            )
-                            .child(
-                                widgets::icon_button(t, ("preset-delete", index), Icon::Trash)
-                                    .size(px(24.))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        let result = this.presets.remove(index);
-                                        if let Err(error) = result {
-                                            this.notify_toast("Could not delete preset", error, true, cx);
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                    },
-                )),
+                div().flex().flex_wrap().gap(px(8.)).children(
+                    self.presets
+                        .presets
+                        .iter()
+                        .enumerate()
+                        .map(|(index, preset)| {
+                            let swatch = if preset.rainbow {
+                                hsla(0.8, 0.7, 0.6, 1.0)
+                            } else {
+                                hex_color(&preset.color).unwrap_or(t.control)
+                            };
+                            div()
+                                .id(("preset", index))
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .pl(px(8.))
+                                .pr(px(4.))
+                                .py(px(4.))
+                                .rounded(px(8.))
+                                .bg(t.control)
+                                .border_1()
+                                .border_color(t.border)
+                                .cursor_pointer()
+                                .hover(move |style| style.bg(hover))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(preset) = this.presets.presets.get(index).cloned() {
+                                        this.light = preset.lighting();
+                                        let color = this.light.color.clone();
+                                        this.color_input
+                                            .update(cx, |input, cx| input.set_text(color, cx));
+                                        this.apply_lighting(Some(preset.name), cx);
+                                    }
+                                }))
+                                .child(div().size(px(12.)).rounded(px(6.)).bg(swatch))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .text_color(t.text)
+                                                .child(preset.name.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(11.))
+                                                .text_color(t.faint)
+                                                .child(model::effect_label(&preset.effect)),
+                                        ),
+                                )
+                                .child(
+                                    widgets::icon_button(t, ("preset-delete", index), Icon::Trash)
+                                        .size(px(24.))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            let result = this.presets.remove(index);
+                                            if let Err(error) = result {
+                                                this.notify_toast(
+                                                    "Could not delete preset",
+                                                    error,
+                                                    true,
+                                                    cx,
+                                                );
+                                            }
+                                            cx.notify();
+                                        })),
+                                )
+                        }),
+                ),
             )
     }
 
-    pub(super) fn render_lighting(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_lighting(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = theme(cx);
         let status = match self.live {
             Some(LiveKind::Screen) => "Screen sync",

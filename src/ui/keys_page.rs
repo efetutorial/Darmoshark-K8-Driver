@@ -4,7 +4,10 @@ use super::{
     widgets::{self, button, card, card_title, field, hint, Kind},
     Studio,
 };
-use crate::{keys, model, requests::{Modifier, WriteRequest}};
+use crate::{
+    keys, model,
+    requests::{Modifier, WriteRequest},
+};
 use gpui::{div, prelude::*, px, AnyElement, Context, SharedString, Window};
 use std::rc::Rc;
 
@@ -47,7 +50,11 @@ impl Studio {
             },
         };
         let target = self.target.clone();
-        let detail = format!("{} → {}", model::key_label(source), model::target_label(&target));
+        let detail = format!(
+            "{} → {}",
+            model::key_label(source),
+            model::target_label(&target)
+        );
         let request = WriteRequest::Remap {
             source: source.into(),
             target,
@@ -60,7 +67,15 @@ impl Studio {
             "remap",
             cx,
             move |backend| backend.execute(request),
-            move |this, result, cx| this.report(result, "Key assignment saved", detail, "Could not assign key", cx),
+            move |this, result, cx| {
+                this.report(
+                    result,
+                    "Key assignment saved",
+                    detail,
+                    "Could not assign key",
+                    cx,
+                )
+            },
         );
     }
 
@@ -96,11 +111,16 @@ impl Studio {
 
     fn set_key_color(&mut self, color: String, cx: &mut Context<Self>) {
         self.key_color = color.clone();
-        self.key_color_input.update(cx, |input, cx| input.set_text(color, cx));
+        self.key_color_input
+            .update(cx, |input, cx| input.set_text(color, cx));
         cx.notify();
     }
 
-    pub(super) fn render_keys(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_keys(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = theme(cx);
         let view = cx.entity().downgrade();
         let selected = self.selected_key;
@@ -179,9 +199,13 @@ impl Studio {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_menu("second-key", cx))),
             )
             .when(second_open, |this| {
-                let mut items: Vec<(SharedString, bool)> = vec![("None".into(), self.second_key.is_none())];
+                let mut items: Vec<(SharedString, bool)> =
+                    vec![("None".into(), self.second_key.is_none())];
                 items.extend(second_names.iter().map(|name| {
-                    (SharedString::from(model::target_label(name)), self.second_key.as_deref() == Some(name))
+                    (
+                        SharedString::from(model::target_label(name)),
+                        self.second_key.as_deref() == Some(name),
+                    )
                 }));
                 let names = second_names.clone();
                 let pick = view.clone();
@@ -213,13 +237,23 @@ impl Studio {
         let assignment = card(&t)
             .flex_1()
             .min_w(px(360.))
-            .child(card_title(&t, if self.fn_layer { "Fn layer assignment" } else { "Key assignment" }))
+            .child(card_title(
+                &t,
+                if self.fn_layer {
+                    "Fn layer assignment"
+                } else {
+                    "Key assignment"
+                },
+            ))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(widgets::badge(&t, selected.map(model::key_label).unwrap_or("—")))
+                    .child(widgets::badge(
+                        &t,
+                        selected.map(model::key_label).unwrap_or("—"),
+                    ))
                     .child(div().text_size(px(13.)).text_color(t.faint).child("→"))
                     .child(widgets::badge(&t, model::target_label(&self.target))),
             )
@@ -233,7 +267,9 @@ impl Studio {
                     .border_1()
                     .border_color(t.border)
                     .p(px(4.))
-                    .when(targets.is_empty(), |this| this.child(hint(&t, "No matching keys or actions.").p(px(8.))))
+                    .when(targets.is_empty(), |this| {
+                        this.child(hint(&t, "No matching keys or actions.").p(px(8.)))
+                    })
                     .children(targets.into_iter().map(|target| {
                         let active = target == self.target;
                         let label = model::target_label(&target);
@@ -263,8 +299,14 @@ impl Studio {
                 widgets::segmented(
                     &t,
                     "modifier",
-                    MODIFIERS.iter().map(|(_, label)| SharedString::from(*label)).collect(),
-                    MODIFIERS.iter().position(|(m, _)| *m == self.modifier).unwrap_or(0),
+                    MODIFIERS
+                        .iter()
+                        .map(|(_, label)| SharedString::from(*label))
+                        .collect(),
+                    MODIFIERS
+                        .iter()
+                        .position(|(m, _)| *m == self.modifier)
+                        .unwrap_or(0),
                     {
                         let view = view.clone();
                         Rc::new(move |index, _, cx| {
@@ -279,16 +321,26 @@ impl Studio {
             ))
             .child(field(&t, "Second key (optional)", second_select))
             .child(
-                button(&t, "apply-remap", "Apply assignment", Kind::Primary, None, self.is_busy("remap"))
-                    .w_full()
-                    .on_click(cx.listener(|this, _, _, cx| this.apply_remap(cx))),
+                button(
+                    &t,
+                    "apply-remap",
+                    "Apply assignment",
+                    Kind::Primary,
+                    None,
+                    self.is_busy("remap"),
+                )
+                .w_full()
+                .on_click(cx.listener(|this, _, _, cx| this.apply_remap(cx))),
             );
 
         let color = card(&t)
             .w(px(320.))
             .flex_none()
             .child(card_title(&t, "Key color"))
-            .child(hint(&t, "Used by the Custom keys lighting mode. Pick a slot, then paint keys one by one."))
+            .child(hint(
+                &t,
+                "Used by the Custom keys lighting mode. Pick a slot, then paint keys one by one.",
+            ))
             .child(
                 div()
                     .flex()
@@ -305,19 +357,26 @@ impl Studio {
                     )
                     .child(self.key_color_input.clone()),
             )
-            .child(div().flex().gap(px(6.)).children(model::SWATCHES.iter().map(|swatch| {
-                let swatch = *swatch;
-                let active = self.key_color.eq_ignore_ascii_case(swatch);
+            .child(
                 div()
-                    .id(SharedString::from(format!("key-swatch-{swatch}")))
-                    .size(px(22.))
-                    .rounded(px(11.))
-                    .cursor_pointer()
-                    .bg(hex_color(swatch).unwrap())
-                    .border_2()
-                    .border_color(if active { t.text } else { t.border })
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_key_color(swatch.into(), cx)))
-            })))
+                    .flex()
+                    .gap(px(6.))
+                    .children(model::SWATCHES.iter().map(|swatch| {
+                        let swatch = *swatch;
+                        let active = self.key_color.eq_ignore_ascii_case(swatch);
+                        div()
+                            .id(SharedString::from(format!("key-swatch-{swatch}")))
+                            .size(px(22.))
+                            .rounded(px(11.))
+                            .cursor_pointer()
+                            .bg(hex_color(swatch).unwrap())
+                            .border_2()
+                            .border_color(if active { t.text } else { t.border })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.set_key_color(swatch.into(), cx)
+                            }))
+                    })),
+            )
             .child(field(
                 &t,
                 "Lighting slot",
@@ -339,9 +398,16 @@ impl Studio {
                 ),
             ))
             .child(
-                button(&t, "apply-key-color", "Apply key color", Kind::Secondary, None, self.is_busy("key-color"))
-                    .w_full()
-                    .on_click(cx.listener(|this, _, _, cx| this.apply_key_color(cx))),
+                button(
+                    &t,
+                    "apply-key-color",
+                    "Apply key color",
+                    Kind::Secondary,
+                    None,
+                    self.is_busy("key-color"),
+                )
+                .w_full()
+                .on_click(cx.listener(|this, _, _, cx| this.apply_key_color(cx))),
             );
 
         div()
@@ -349,7 +415,14 @@ impl Studio {
             .flex_col()
             .gap(px(16.))
             .child(picker)
-            .child(div().flex().gap(px(16.)).items_start().child(assignment).child(color))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .items_start()
+                    .child(assignment)
+                    .child(color),
+            )
             .into_any_element()
     }
 }

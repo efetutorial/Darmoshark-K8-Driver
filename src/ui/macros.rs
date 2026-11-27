@@ -19,16 +19,40 @@ const MODES: [(&str, &str); 3] = [
 ];
 
 impl Studio {
-    fn new_row(&mut self, key: String, action: MacroAction, delay: u16, cx: &mut Context<Self>) -> MacroRow {
-        let input = cx.new(|cx| TextInput::new(cx, "0").digits().max_len(5).with_text(delay.to_string()));
-        MacroRow { key, action, delay: input }
+    fn new_row(
+        &mut self,
+        key: String,
+        action: MacroAction,
+        delay: u16,
+        cx: &mut Context<Self>,
+    ) -> MacroRow {
+        let input = cx.new(|cx| {
+            TextInput::new(cx, "0")
+                .digits()
+                .max_len(5)
+                .with_text(delay.to_string())
+        });
+        MacroRow {
+            key,
+            action,
+            delay: input,
+        }
     }
 
-    pub(super) fn record_event(&mut self, key: String, action: MacroAction, at: Instant, cx: &mut Context<Self>) {
+    pub(super) fn record_event(
+        &mut self,
+        key: String,
+        action: MacroAction,
+        at: Instant,
+        cx: &mut Context<Self>,
+    ) {
         let Some(recording) = self.recording.as_mut() else {
             return;
         };
-        let elapsed = at.saturating_duration_since(recording.last).as_millis().min(65535) as u16;
+        let elapsed = at
+            .saturating_duration_since(recording.last)
+            .as_millis()
+            .min(65535) as u16;
         recording.last = at;
         match action {
             MacroAction::Down => {
@@ -46,7 +70,8 @@ impl Studio {
         }
         // The delay of an event is the wait after it, so set it on the previous row.
         if let Some(last) = self.macro_events.last() {
-            last.delay.update(cx, |input, cx| input.set_text(elapsed.to_string(), cx));
+            last.delay
+                .update(cx, |input, cx| input.set_text(elapsed.to_string(), cx));
         }
         let row = self.new_row(key, action, 30, cx);
         self.macro_events.push(row);
@@ -87,7 +112,11 @@ impl Studio {
                 continue;
             }
             if let Some(name) = model::usage_name(event.usage) {
-                let action = if event.down { MacroAction::Down } else { MacroAction::Up };
+                let action = if event.down {
+                    MacroAction::Down
+                } else {
+                    MacroAction::Up
+                };
                 self.record_event(name, action, event.at, cx);
             }
         }
@@ -103,7 +132,12 @@ impl Studio {
             self.record_event(key, MacroAction::Up, Instant::now(), cx);
         }
         self.recording = None;
-        self.notify_toast("Recording saved", format!("{} events", self.macro_events.len()), false, cx);
+        self.notify_toast(
+            "Recording saved",
+            format!("{} events", self.macro_events.len()),
+            false,
+            cx,
+        );
     }
 
     fn save_macro(&mut self, cx: &mut Context<Self>) {
@@ -145,7 +179,13 @@ impl Studio {
             cx,
             move |backend| backend.execute(request),
             move |this, result, cx| {
-                this.report(result, "Macro saved", format!("{count} events · Slot {slot}"), "Could not save macro", cx)
+                this.report(
+                    result,
+                    "Macro saved",
+                    format!("{count} events · Slot {slot}"),
+                    "Could not save macro",
+                    cx,
+                )
             },
         );
     }
@@ -170,12 +210,19 @@ impl Studio {
             .relative()
             .child(
                 widgets::select_button(t, id.clone(), model::key_label(current).to_string(), open)
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(toggle_id.clone(), cx))),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_menu(toggle_id.clone(), cx)),
+                    ),
             )
             .when(open, |this| {
                 let items = names
                     .iter()
-                    .map(|name| (SharedString::from(model::key_label(name).to_string()), name == current))
+                    .map(|name| {
+                        (
+                            SharedString::from(model::key_label(name).to_string()),
+                            name == current,
+                        )
+                    })
                     .collect();
                 let pick = view.clone();
                 let dismiss = view.clone();
@@ -206,7 +253,11 @@ impl Studio {
             })
     }
 
-    pub(super) fn render_macros(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_macros(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = theme(cx);
         let view = cx.entity().downgrade();
         let recording = self.recording.is_some();
@@ -215,49 +266,62 @@ impl Studio {
             .w(px(340.))
             .flex_none()
             .child(card_title(&t, "Macro"))
-            .child(hint(&t, "Macros are stored on the keyboard and run even when this app is closed."))
+            .child(hint(
+                &t,
+                "Macros are stored on the keyboard and run even when this app is closed.",
+            ))
             .child(field(
                 &t,
                 "Trigger key",
-                self.key_menu(&t, "macro-trigger".into(), &self.macro_trigger.clone(), cx, |this, name| {
-                    this.macro_trigger = name
-                }),
+                self.key_menu(
+                    &t,
+                    "macro-trigger".into(),
+                    &self.macro_trigger.clone(),
+                    cx,
+                    |this, name| this.macro_trigger = name,
+                ),
             ))
             .child(
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(div().flex_1().child(field(
-                        &t,
-                        format!("Macro slot · {}", self.macro_slot),
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(
-                                widgets::icon_button(&t, "slot-down", Icon::Minimize)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.macro_slot = this.macro_slot.saturating_sub(1);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_center()
-                                    .text_size(px(13.))
-                                    .text_color(t.text)
-                                    .child(self.macro_slot.to_string()),
-                            )
-                            .child(
-                                widgets::icon_button(&t, "slot-up", Icon::Plus)
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                    .child(
+                        div().flex_1().child(field(
+                            &t,
+                            format!("Macro slot · {}", self.macro_slot),
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(
+                                    widgets::icon_button(&t, "slot-down", Icon::Minimize).on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            this.macro_slot = this.macro_slot.saturating_sub(1);
+                                            cx.notify();
+                                        }),
+                                    ),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_center()
+                                        .text_size(px(13.))
+                                        .text_color(t.text)
+                                        .child(self.macro_slot.to_string()),
+                                )
+                                .child(widgets::icon_button(&t, "slot-up", Icon::Plus).on_click(
+                                    cx.listener(|this, _, _, cx| {
                                         this.macro_slot = (this.macro_slot + 1).min(49);
                                         cx.notify();
-                                    })),
-                            ),
-                    )))
-                    .child(div().flex_1().child(field(&t, "Repeat count", self.macro_repeat.clone()))),
+                                    }),
+                                )),
+                        )),
+                    )
+                    .child(div().flex_1().child(field(
+                        &t,
+                        "Repeat count",
+                        self.macro_repeat.clone(),
+                    ))),
             )
             .child(field(
                 &t,
@@ -265,7 +329,10 @@ impl Studio {
                 widgets::segmented(
                     &t,
                     "macro-mode",
-                    MODES.iter().map(|(_, label)| SharedString::from(*label)).collect(),
+                    MODES
+                        .iter()
+                        .map(|(_, label)| SharedString::from(*label))
+                        .collect(),
                     self.macro_mode,
                     {
                         let view = view.clone();
@@ -287,8 +354,16 @@ impl Studio {
                         button(
                             &t,
                             "macro-record",
-                            if recording { "Stop recording" } else { "Record" },
-                            if recording { Kind::Danger } else { Kind::Secondary },
+                            if recording {
+                                "Stop recording"
+                            } else {
+                                "Record"
+                            },
+                            if recording {
+                                Kind::Danger
+                            } else {
+                                Kind::Secondary
+                            },
                             Some(if recording { Icon::Stop } else { Icon::Record }),
                             false,
                         )
@@ -310,9 +385,16 @@ impl Studio {
                     ),
             )
             .child(
-                button(&t, "save-macro", "Save macro", Kind::Primary, None, self.is_busy("macro"))
-                    .w_full()
-                    .on_click(cx.listener(|this, _, _, cx| this.save_macro(cx))),
+                button(
+                    &t,
+                    "save-macro",
+                    "Save macro",
+                    Kind::Primary,
+                    None,
+                    self.is_busy("macro"),
+                )
+                .w_full()
+                .on_click(cx.listener(|this, _, _, cx| this.save_macro(cx))),
             );
 
         let rows: Vec<AnyElement> = (0..self.macro_events.len())
@@ -353,7 +435,11 @@ impl Studio {
                             action_view
                                 .update(cx, |this, cx| {
                                     if let Some(row) = this.macro_events.get_mut(index) {
-                                        row.action = if choice == 0 { MacroAction::Down } else { MacroAction::Up };
+                                        row.action = if choice == 0 {
+                                            MacroAction::Down
+                                        } else {
+                                            MacroAction::Up
+                                        };
                                     }
                                     cx.notify();
                                 })
@@ -370,14 +456,14 @@ impl Studio {
                             .child(div().text_size(px(11.)).text_color(t.faint).child("ms")),
                     )
                     .child(
-                        widgets::icon_button(&t, ("event-delete", index), Icon::Trash).on_click(cx.listener(
-                            move |this, _, _, cx| {
+                        widgets::icon_button(&t, ("event-delete", index), Icon::Trash).on_click(
+                            cx.listener(move |this, _, _, cx| {
                                 if index < this.macro_events.len() {
                                     this.macro_events.remove(index);
                                 }
                                 cx.notify();
-                            },
-                        )),
+                            }),
+                        ),
                     )
                     .into_any_element()
             })

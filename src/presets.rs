@@ -141,7 +141,10 @@ impl Store {
         let Ok(text) = std::fs::read_to_string(&path) else {
             return store;
         };
-        match serde_json::from_str::<Value>(&text).map_err(|e| e.to_string()).and_then(|v| parse(&v)) {
+        match serde_json::from_str::<Value>(&text)
+            .map_err(|e| e.to_string())
+            .and_then(|v| parse(&v))
+        {
             Ok((presets, dropped)) => {
                 store.presets = keep_latest(presets);
                 store.recovered = dropped > 0;

@@ -85,11 +85,25 @@ pub fn button(
     disabled: bool,
 ) -> Stateful<Div> {
     let (bg, fg, border, hover) = match kind {
-        Kind::Primary => (t.primary, t.primary_text, t.primary, t.primary.opacity(0.88)),
+        Kind::Primary => (
+            t.primary,
+            t.primary_text,
+            t.primary,
+            t.primary.opacity(0.88),
+        ),
         Kind::Secondary => (t.control, t.text, t.border, t.hover),
-        Kind::Danger => (gpui::transparent_black(), t.danger, t.border, t.danger.opacity(0.1)),
+        Kind::Danger => (
+            gpui::transparent_black(),
+            t.danger,
+            t.border,
+            t.danger.opacity(0.1),
+        ),
     };
-    let hover_bg = if kind == Kind::Secondary { t.active } else { hover };
+    let hover_bg = if kind == Kind::Secondary {
+        t.active
+    } else {
+        hover
+    };
     div()
         .id(id.into())
         .flex()
@@ -317,25 +331,32 @@ pub fn menu(
                 .border_color(t.border_strong)
                 .shadow_lg()
                 .on_mouse_down_out(move |_, window, cx| on_dismiss(window, cx))
-                .children(items.into_iter().enumerate().map(|(index, (label, selected))| {
-                    let on_pick = on_pick.clone();
-                    div()
-                        .id(child_id(&id, index))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(12.))
-                        .px(px(8.))
-                        .py(px(6.))
-                        .rounded(px(6.))
-                        .text_size(px(13.))
-                        .text_color(t.text)
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(hover))
-                        .on_click(move |_: &ClickEvent, window, cx| on_pick(index, window, cx))
-                        .child(label)
-                        .when(selected, |this| this.child(icon(Icon::Check, 14., t.muted)))
-                })),
+                .children(
+                    items
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (label, selected))| {
+                            let on_pick = on_pick.clone();
+                            div()
+                                .id(child_id(&id, index))
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .gap(px(12.))
+                                .px(px(8.))
+                                .py(px(6.))
+                                .rounded(px(6.))
+                                .text_size(px(13.))
+                                .text_color(t.text)
+                                .cursor_pointer()
+                                .hover(move |style| style.bg(hover))
+                                .on_click(move |_: &ClickEvent, window, cx| {
+                                    on_pick(index, window, cx)
+                                })
+                                .child(label)
+                                .when(selected, |this| this.child(icon(Icon::Check, 14., t.muted)))
+                        }),
+                ),
         ),
     )
     .with_priority(1)

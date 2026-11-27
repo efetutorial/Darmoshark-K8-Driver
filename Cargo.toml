@@ -42,6 +42,11 @@ lto = "thin"
 codegen-units = 8
 panic = "abort"
 
+# GPUI 0.2.2 uses Blade 0.7.0. Keep the Wayland swapchain recovery patch
+# until we can upgrade to a renderer with equivalent recovery upstream.
+[patch.crates-io]
+blade-graphics = { path = "vendor/blade-graphics" }
+
 # `cargo deb` (cargo-deb) and `cargo generate-rpm` (cargo-generate-rpm).
 # GPUI loads Vulkan, Wayland and X11 libraries at runtime, so they are listed
 # explicitly rather than detected from linked libraries.
